@@ -37,3 +37,10 @@ Rozdělené na díly, odlehčené a se zmenšenými texturami skriptem v Blender
 - `wooden_crate_01.glb` ← https://polyhaven.com/a/wooden_crate_01
 - `wooden_crate_02.glb` ← https://polyhaven.com/a/wooden_crate_02
 - `wooden_hammer_01.glb` ← https://polyhaven.com/a/wooden_hammer_01
+
+## Stromy
+
+`strom_listnac.glb`, `strom_jasan.glb`, `strom_ovocny.glb`, `strom_smrk.glb`, `strom_briza.glb` vygenerované knihovnou
+[ez-tree](https://github.com/dgreenheck/ez-tree) (MIT, © Daniel Greenheck, včetně textur kůry a listí), postup v
+`tools/trees/README.md`. Text licence je v `LICENSE-ez-tree.txt`. Kůra dubu je z Poly Haven (CC0), kůra smrku a
+břízy z TextureCan (CC0), listí je součástí ez-tree.

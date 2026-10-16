@@ -12,6 +12,9 @@ map a ty ho z první osoby rozebereš na cihly, prkna a peří.
 - kladivo (omítka, cihly, dřevo), perlík (i beton), sbíječka (všechno, přesně), nálože (`E` odpálí), bourací koule
 - `F` létání (mezerník nahoru, `C` dolů), `Esc` pauza
 
+Okolní domy mají okna po patrech, dveře do ulice a střechy z leteckého snímku, kolem rostou skutečné stromy
+(listnáče, jasany, ovocné stromy, smrky a břízy) tam, kde je hra najde na snímku a ve výškopisu.
+
 Zdi a stropy jsou z 10cm kostek (omítka navrchu, uvnitř cihla a beton). Nábytek je ze skutečných modelů
 a rozpadá se po dílech podle materiálu: postel na rám, matraci a peřinu, ze které se vysype peří.
 Dřevo se láme na úlomky a třísky, sedačka na molitan a potah, sklo a keramika na střepy, knihy na papíry,
@@ -39,4 +42,6 @@ nenačtou a hra nabídne jen tlačítko na plnou verzi.
   až v prohlížeči hráče ze služeb ags.cuzk.gov.cz.
 - Textury v `tex/` a modely v `models/`: [Poly Haven](https://polyhaven.com), CC0 (seznamy v `tex/SOURCES.md`
   a `models/SOURCES.md`). Modely jsou rozdělené na díly a odlehčené v Blenderu.
+- Stromy `models/strom_*.glb`: vygenerované knihovnou [ez-tree](https://github.com/dgreenheck/ez-tree) (MIT,
+  © Daniel Greenheck, licence v `models/LICENSE-ez-tree.txt`).
 - three.js (MIT), Rapier (Apache-2.0), cannon-es (MIT), Leaflet (BSD-2-Clause).
