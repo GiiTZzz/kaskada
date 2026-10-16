@@ -1,0 +1,2123 @@
+<title>Kaskáda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,800;1,800;1,900&family=Barlow:wght@500;600&display=swap">
+<style>
+:root{
+  /* Layout: celoplošné 3D plátno; HUD jako tabule stavby v rozích, skóre rány dole uprostřed jako na automatu */
+  --night:#130f24; --ink:#fff2e2; --dim:#bcb0cf; --panel:rgba(22,16,40,.78); --edge:rgba(255,242,226,.16);
+  --hazard:#ffc23a; --hazard-deep:#8a5a12; --chips:#2f9bff; --mult:#ff4634; --gold:#ffd25a;
+  --f-display:"Barlow Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --f-ui:"Barlow","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{margin:0;background:var(--night);color:var(--ink);font-family:var(--f-ui);overflow:hidden;user-select:none;-webkit-user-select:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair;outline:none}
+
+.hud::before{content:"";position:absolute;inset:0 0 auto;height:170px;background:linear-gradient(rgba(19,15,36,.42),rgba(19,15,36,0))}
+.hud{position:fixed;inset:0;pointer-events:none;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(19,15,36,.7)}
+.tl{position:absolute;top:18px;left:max(20px,env(safe-area-inset-left,0px));display:grid;gap:7px}
+.lvl{font:600 13px/1 var(--f-ui);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.lvl b{color:var(--hazard);font-weight:600}
+.score{font:800 56px/.9 var(--f-display);text-shadow:0 2px 0 rgba(0,0,0,.35)}
+.score small{font:600 24px var(--f-display);color:var(--dim);margin-left:6px}
+.bar{width:280px;max-width:60vw;height:10px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge)}
+.bar i{display:block;height:100%;width:0;background:repeating-linear-gradient(-45deg,var(--hazard) 0 8px,#2a2234 8px 16px);transition:width .6s cubic-bezier(.2,.8,.2,1)}
+.run{font:500 12px var(--f-ui);color:var(--dim);letter-spacing:.08em}
+.tr{position:absolute;top:18px;right:max(20px,env(safe-area-inset-right,0px));display:grid;justify-items:end;gap:10px}
+.shots{display:flex;gap:8px}
+.shots i{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#a7afc0,#3a3f4b 55%,#16181e);box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.shots i.used{background:transparent;box-shadow:inset 0 0 0 2px rgba(255,255,255,.22)}
+.mode{font:600 12px var(--f-ui);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);display:flex;gap:8px;align-items:center}
+.mode b{color:var(--ink);font-weight:600}
+kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.1);box-shadow:inset 0 -2px 0 rgba(0,0,0,.3);color:var(--ink);letter-spacing:.04em;text-transform:none}
+
+.bc{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);display:grid;justify-items:center;gap:8px}
+.evt{font:800 italic 24px/1 var(--f-display);letter-spacing:.06em;color:var(--hazard);min-height:24px;text-transform:uppercase;text-shadow:0 2px 0 rgba(0,0,0,.5);transition:opacity .4s}
+.cm{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--panel);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 0 0 1px var(--edge);transition:opacity .3s}
+.cm.idle{opacity:0}
+.box{min-width:124px;padding:6px 14px 8px;border-radius:9px;display:grid;gap:2px}
+.box small{font:600 11px var(--f-ui);letter-spacing:.18em;text-transform:uppercase;opacity:.9}
+.box b{font:800 46px/1 var(--f-display);text-align:right;display:block}
+.chips{background:linear-gradient(180deg,#3aa4ff,#1f6fd1);box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.mult{background:linear-gradient(180deg,#ff5a46,#cf2a1d);box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.x{font:800 36px var(--f-display);color:var(--dim)}
+.shot{font:800 34px/1 var(--f-display);min-height:34px;color:var(--ink);text-shadow:0 2px 0 rgba(0,0,0,.5)}
+.bump{animation:bump .24s cubic-bezier(.2,1.6,.4,1)}
+@keyframes bump{0%{transform:scale(1.24)}100%{transform:scale(1)}}
+.hot{animation:hot .5s ease-in-out infinite alternate}
+@keyframes hot{to{filter:brightness(1.35)}}
+
+.bl{position:absolute;left:max(20px,env(safe-area-inset-left,0px));bottom:22px;font:500 13px/1.7 var(--f-ui);color:var(--dim);max-width:min(540px,34vw)}
+.br{position:absolute;right:max(20px,env(safe-area-inset-right,0px));bottom:22px;font:500 11px var(--f-ui);color:var(--dim);opacity:.65;letter-spacing:.06em}
+
+.pops{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.pop{position:absolute;left:0;top:0;font:800 22px/1 var(--f-display);white-space:nowrap;text-shadow:0 2px 0 rgba(0,0,0,.6),0 0 14px rgba(0,0,0,.35);will-change:transform,opacity}
+.pop.c{color:#a6d6ff}
+.pop.m{color:#ff8f7f;font-size:32px}
+.pop.g{color:var(--gold);font-size:38px}
+.pop.s{font-size:17px;color:#eadfcf}
+
+#flash{position:fixed;inset:0;background:#fff;mix-blend-mode:difference;opacity:0;pointer-events:none}
+#glow{position:fixed;inset:0;background:radial-gradient(circle at var(--gx,50%) var(--gy,50%),rgba(255,238,205,.95),rgba(255,150,80,.28) 32%,transparent 68%);opacity:0;pointer-events:none}
+
+.ov{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 45%,rgba(19,15,36,.2),rgba(19,15,36,.84) 72%);padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow:auto}
+.card{max-width:680px;display:grid;gap:20px;justify-items:center;text-align:center}
+.logo{font:900 italic clamp(64px,13vw,156px)/.85 var(--f-display);letter-spacing:.01em;color:var(--hazard);margin:0;display:flex;text-shadow:0 6px 0 var(--hazard-deep),0 20px 44px rgba(0,0,0,.5)}
+.logo span{display:inline-block;transform:translateY(var(--y,0)) rotate(var(--r,0deg));animation:drop .9s cubic-bezier(.3,1.45,.5,1) both;animation-delay:calc(var(--i) * 70ms)}
+@keyframes drop{0%{transform:translateY(-140%) rotate(-30deg);opacity:0}55%{opacity:1}100%{transform:translateY(var(--y,0)) rotate(var(--r,0deg))}}
+.tag{font:600 20px/1.35 var(--f-ui);margin:0;text-wrap:balance}
+.formula{display:flex;align-items:center;gap:10px;font:800 22px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase}
+.formula span{padding:7px 12px;border-radius:7px}
+.formula .eq{color:var(--dim);padding:0}
+.rules{display:grid;grid-template-columns:repeat(3,auto);gap:8px 22px;margin:0;font:500 14px/1.3 var(--f-ui);color:var(--dim);text-align:left}
+.rules b{color:var(--ink);font-weight:600}
+.btn{pointer-events:auto;font:800 26px/1 var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:#1b1206;background:var(--hazard);border:0;border-radius:10px;padding:15px 38px;cursor:pointer;box-shadow:0 5px 0 var(--hazard-deep),0 14px 30px rgba(0,0,0,.4);transition:transform .08s,box-shadow .08s}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 var(--hazard-deep)}
+.btn:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
+.btn[disabled]{opacity:.6;cursor:wait}
+.link{pointer-events:auto;background:none;border:0;color:var(--dim);font:600 14px var(--f-ui);text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px}
+.link:hover{color:var(--ink)}
+.link:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.row{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center}
+.btn2{background:transparent;color:var(--hazard);box-shadow:inset 0 0 0 3px var(--hazard),0 14px 30px rgba(0,0,0,.3)}
+.btn2:active{box-shadow:inset 0 0 0 3px var(--hazard)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:20px;text-align:left;width:min(560px,100%);counter-reset:st}
+.steps li{display:grid;gap:8px;padding-left:46px;position:relative;counter-increment:st;min-width:0}
+.steps li::before{content:counter(st);position:absolute;left:0;top:-3px;width:32px;height:32px;border-radius:50%;background:var(--hazard);color:#1b1206;font:800 20px/32px var(--f-display);text-align:center}
+.lab{font:600 15px/1.35 var(--f-ui);color:var(--ink)}
+.steps input[type=text]{font:500 15px var(--f-ui);color:var(--ink);background:rgba(255,255,255,.07);border:0;border-radius:8px;padding:11px 12px;box-shadow:inset 0 0 0 1px var(--edge);width:100%;box-sizing:border-box;min-width:0}
+.steps input[type=text]:focus-visible{outline:2px solid var(--hazard);outline-offset:1px}
+.hintline{font:500 13px/1.4 var(--f-ui);color:var(--dim);margin:0}
+.hintline.ok{color:#8fe39a}
+.go{font:600 15px var(--f-ui);color:var(--hazard);text-underline-offset:3px}
+.go:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.drop{display:grid;place-items:center;text-align:center;min-height:96px;padding:14px;border-radius:12px;border:2px dashed rgba(255,194,58,.55);color:var(--ink);font:600 15px/1.4 var(--f-ui);cursor:pointer;background:rgba(255,194,58,.05)}
+.drop.over{background:rgba(255,194,58,.16);border-color:var(--hazard)}
+.drop:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.err{font:600 14px/1.4 var(--f-ui);color:#ff8f7f;margin:0;max-width:56ch}
+.mapbox{display:grid;gap:12px;width:min(620px,100%);text-align:left}
+.srow{display:flex;gap:8px}
+.srow input{flex:1;min-width:0;font:500 15px var(--f-ui);color:var(--ink);background:rgba(255,255,255,.07);border:0;border-radius:8px;padding:11px 12px;box-shadow:inset 0 0 0 1px var(--edge)}
+.srow input:focus-visible{outline:2px solid var(--hazard);outline-offset:1px}
+.btn.small{font-size:18px;padding:10px 18px;box-shadow:0 3px 0 var(--hazard-deep)}
+.results{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.results button{pointer-events:auto;width:100%;text-align:left;font:500 14px/1.35 var(--f-ui);color:var(--ink);background:rgba(255,255,255,.06);border:0;border-radius:6px;padding:8px 10px;cursor:pointer}
+.results button:hover,.results button:focus-visible{background:rgba(255,194,58,.18);outline:none}
+.map{height:min(46vh,380px);border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge);background:#2a2338}
+.maprow{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.fine a{color:inherit;text-underline-offset:2px}
+.charges{font:600 12px var(--f-ui);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);display:flex;gap:7px;align-items:center}
+#charges{display:flex;gap:5px}
+.charges i{width:12px;height:18px;border-radius:3px;background:linear-gradient(#e0392b,#8c1d14);box-shadow:inset 0 5px 0 rgba(242,227,196,.85)}
+.charges i.used{background:transparent;box-shadow:inset 0 0 0 2px rgba(255,255,255,.22)}
+.br a{color:inherit;pointer-events:auto;text-underline-offset:2px}
+.tag3d{position:absolute;left:0;top:0;font:800 16px/1 var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:#1b1206;background:var(--hazard);padding:5px 9px;border-radius:5px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.35);text-shadow:none}
+.tag3d::after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--hazard)}
+.fine{font:500 14px/1.5 var(--f-ui);color:var(--dim);margin:0;max-width:56ch;text-wrap:balance}
+.note{font:600 14px/1.4 var(--f-ui);color:var(--hazard);margin:0}
+.big{font:800 64px/1 var(--f-display);margin:0;letter-spacing:.02em}
+.head{font:900 italic clamp(44px,8vw,84px)/.9 var(--f-display);color:var(--hazard);margin:0;text-shadow:0 5px 0 var(--hazard-deep)}
+.lines{display:grid;grid-template-columns:auto auto;gap:6px 26px;font:500 16px var(--f-ui);color:var(--dim);font-variant-numeric:tabular-nums}
+.lines b{color:var(--ink);text-align:right;font-weight:600}
+
+@media (max-width:760px){
+  .bl{display:none}
+  .score{font-size:40px}
+  .box{min-width:86px}
+  .box b{font-size:34px}
+  .rules{grid-template-columns:repeat(2,auto)}
+}
+@media (prefers-reduced-motion:reduce){
+  .logo span{animation:none}
+  .bump,.hot{animation:none}
+}
+</style>
+
+<canvas id="c" tabindex="0" aria-label="Herní scéna Kaskáda"></canvas>
+<div id="glow"></div>
+<div id="flash"></div>
+<div class="pops" id="pops"></div>
+
+<div class="hud" id="hud" hidden>
+  <div class="tl">
+    <div class="lvl" id="lvl">Úroveň <b>1</b> · Tři věže</div>
+    <div class="score"><span id="total">0</span><small id="scoreSub">/ 0</small></div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="run" id="runLine">Běh 0 · rekord 0</div>
+  </div>
+  <div class="tr">
+    <div class="shots" id="shots" aria-label="Zbývající koule"></div>
+    <div class="mode">Dráha <b id="mode">přímá</b> <kbd>mezerník</kbd></div>
+    <div class="charges" id="chargesBox" hidden>Nálože <span id="charges"></span> <kbd>pravé tlačítko</kbd> <kbd>D</kbd></div>
+  </div>
+  <div class="bc">
+    <div class="evt" id="evt"></div>
+    <div class="cm idle" id="cm">
+      <div class="box chips" id="chipsBox"><small>Body</small><b id="chips">0</b></div>
+      <span class="x">×</span>
+      <div class="box mult" id="multBox"><small>Násobič</small><b id="mult">1</b></div>
+    </div>
+    <div class="shot" id="shot"></div>
+  </div>
+  <div class="bl">Myš míří · <b>podrž a pusť</b> = výstřel · <kbd>mezerník</kbd><span id="rmbHint"> / pravé tlačítko</span> = dráha · <span id="chHint" hidden><b>pravé tlačítko</b> = nálož · <kbd>D</kbd> odpálit · </span><kbd>R</kbd> znovu · <kbd>M</kbd> zvuk</div>
+  <div class="br"><span id="attr" hidden>Budovy © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a> · </span><span id="engine"></span></div>
+</div>
+
+<div class="ov" id="ov">
+  <div class="card" id="cardTitle">
+    <h1 class="logo" aria-label="Kaskáda"><span style="--i:0">K</span><span style="--i:1;--y:4px;--r:-3deg">A</span><span style="--i:2">S</span><span style="--i:3;--y:-3px;--r:4deg">K</span><span style="--i:4">Á</span><span style="--i:5;--y:6px;--r:7deg">D</span><span style="--i:6;--y:14px;--r:16deg">A</span></h1>
+    <p class="tag">Tři koule na úroveň. Jedna dobrá rána spustí řetězovou reakci.</p>
+    <div class="formula" aria-label="Body krát násobič rovná se rána"><span class="chips">Body</span><span class="eq">×</span><span class="mult">Násobič</span><span class="eq">= rána</span></div>
+    <dl class="rules">
+      <div><b>Dřevo</b> 10 · <b>kámen</b> 25</div>
+      <div><b>Sklo</b> 15 a +0,5 ×</div>
+      <div><b>TNT</b> 40 a +1 ×</div>
+      <div><b>Do propasti</b> body znovu</div>
+      <div><b>Zlato</b> do propasti ×1,5</div>
+      <div><b>Koule navíc</b> bonus 20 %</div>
+    </dl>
+    <div class="row"><button class="btn" id="play" disabled>Načítám fyziku…</button><button class="btn btn2" id="placeBtn" disabled>Moje místo</button></div>
+    <button class="link" id="fresh" hidden>Začít od první úrovně</button>
+    <p class="fine">Myší míříš, podržením natáhneš prak, puštěním vystřelíš. Mezerník nebo pravé tlačítko přepíná přímou a obloukovou dráhu.</p>
+    <p class="note" id="desk" hidden>Kaskáda je zatím jen pro počítač s myší.</p>
+  </div>
+  <div class="card" id="cardPlace" hidden>
+    <h2 class="head">Moje místo</h2>
+    <p class="tag">Postav do hry skutečné budovy z OpenStreetMap. Třeba dům, kde bydlíš.</p>
+    <div class="mapbox" id="mapBox" hidden>
+      <form class="srow" id="searchForm" role="search">
+        <label class="lab" for="q" hidden>Najdi adresu</label>
+        <input type="text" id="q" autocomplete="off" placeholder="Najdi adresu, například Masarykova 12, Brno" aria-label="Najdi adresu">
+        <button class="btn small" type="submit">Hledat</button>
+      </form>
+      <ul class="results" id="results" hidden></ul>
+      <div class="map" id="map" role="application" aria-label="Mapa: klikni na svůj dům"></div>
+      <div class="maprow">
+        <button class="btn" id="buildBtn" disabled>Postavit toto místo</button>
+        <p class="hintline" id="mapHint" aria-live="polite">Klikni do mapy na svůj dům.</p>
+      </div>
+      <button class="link" id="manualBtn">Nahrát soubor ručně</button>
+    </div>
+    <ol class="steps" id="steps">
+      <li>
+        <label class="lab" for="loc">Vlož odkaz z Google Maps, Google Earth nebo Mapy.cz, případně souřadnice</label>
+        <input type="text" id="loc" autocomplete="off" spellcheck="false" placeholder="například 50.0875, 14.4213" aria-describedby="locOut">
+        <p class="hintline" id="locOut" aria-live="polite">Střed vloženého místa bude tvůj dům s vlajkou.</p>
+      </li>
+      <li>
+        <span class="lab">Na OpenStreetMap klikni na Export a stáhni soubor map.osm</span>
+        <a class="go" id="osmLink" href="https://www.openstreetmap.org/export" target="_blank" rel="noopener">Otevřít export na openstreetmap.org</a>
+      </li>
+      <li>
+        <span class="lab">Přetáhni stažený soubor sem</span>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-describedby="placeErr">Pusť sem map.osm nebo klikni a vyber soubor</div>
+        <input type="file" id="file" accept=".osm,.xml,application/xml,text/xml" hidden>
+      </li>
+    </ol>
+    <p class="err" id="placeErr" role="alert" hidden></p>
+    <p class="fine">Soubor se zpracuje jen v tvém prohlížeči a nikam se neposílá. Budovy © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a>.</p>
+    <button class="link" id="placeBack">Zpět</button>
+  </div>
+  <div class="card" id="cardEnd" hidden>
+    <h2 class="head" id="endHead">Zbořeno</h2>
+    <p class="big" id="endBig">0</p>
+    <div class="lines" id="endLines"></div>
+    <button class="btn" id="endBtn">Další úroveň</button>
+    <button class="link" id="endAlt" hidden>Jiné místo</button>
+    <p class="fine" id="endFine"></p>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const RAPIER_URL = 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.19.3/rapier.mjs';
+const CANNON_URL = 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
+
+// ---------- konstanty a pomůcky ----------
+const $ = id => document.getElementById(id);
+const G = 14;                       // gravitace: o něco tvrdší než Země, ať to nepadá jako ve vodě
+const SHOTS = 3;
+const SPEED = 33;                   // rychlost koule na přímé dráze
+const LOB = 0.96;                   // úhel obloukové dráhy (rad)
+const SLING = new THREE.Vector3(0, 2.3, 22);
+const BALL_R = 0.62;
+const PLAT = { x0: -8.2, x1: 8.2, z0: -5.2, z1: 6.2 };
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const fmt = n => Math.round(n).toLocaleString('cs-CZ');
+const fmtMult = m => (Math.round(m * 10) / 10).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('kaskada.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('kaskada.' + k, JSON.stringify(v)); } catch { /* bez úložiště to jede taky */ } },
+};
+
+// ---------- zvuk (syntéza, žádné soubory) ----------
+const Snd = {
+  ctx: null, out: null, buf: null, muted: store.get('muted', false), last: {},
+  init() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    this.ctx = new AC();
+    const comp = this.ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 8; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.2;
+    this.out = this.ctx.createGain(); this.out.gain.value = this.muted ? 0 : 0.9;
+    this.out.connect(comp); comp.connect(this.ctx.destination);
+    const len = this.ctx.sampleRate * 2, b = this.ctx.createBuffer(1, len, this.ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.buf = b;
+  },
+  setMuted(m) { this.muted = m; store.set('muted', m); if (this.out) this.out.gain.value = m ? 0 : 0.9; },
+  ok(key, ms) { if (!this.ctx || this.muted) return false; const n = performance.now(); if (this.last[key] && n - this.last[key] < ms) return false; this.last[key] = n; return true; },
+  env(g, t0, a, d, peak) { g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + a); g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d); },
+  noise(type, f0, f1, dur, peak, q = 0.8, delay = 0) {
+    const c = this.ctx, t = c.currentTime + delay, s = c.createBufferSource(); s.buffer = this.buf;
+    const f = c.createBiquadFilter(); f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain(); this.env(g, t, 0.004, dur, peak);
+    s.connect(f); f.connect(g); g.connect(this.out); s.start(t, Math.random() * 1.2); s.stop(t + dur + 0.05);
+  },
+  tone(type, f0, f1, dur, peak, delay = 0) {
+    const c = this.ctx, t = c.currentTime + delay, o = c.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain(); this.env(g, t, 0.005, dur, peak); o.connect(g); g.connect(this.out); o.start(t); o.stop(t + dur + 0.05);
+  },
+  thud(k) { if (!this.ok('thud', 28)) return; k = clamp(k, 0.05, 1); this.noise('lowpass', 300 + 1400 * k, 90, 0.12 + 0.12 * k, 0.5 * k, 1); this.tone('sine', 90 + 90 * k, 45, 0.14, 0.35 * k); },
+  glass() { if (!this.ok('glass', 45)) return; this.noise('highpass', 3500, 7000, 0.22, 0.28, 0.7); for (let i = 0; i < 5; i++) { const f = 2400 + Math.random() * 4200; this.tone('sine', f, f * 0.97, 0.18 + Math.random() * 0.35, 0.05, i * 0.018); } },
+  boom() { if (!this.ok('boom', 60)) return; this.noise('lowpass', 2400, 60, 1.5, 1.0, 0.7); this.tone('sine', 110, 26, 1.0, 0.9); this.tone('triangle', 55, 30, 0.5, 0.35); },
+  whoosh() { if (!this.ok('whoosh', 80)) return; this.noise('bandpass', 500, 2600, 0.4, 0.35, 1.6); },
+  creak() { if (!this.ok('creak', 120)) return; this.tone('sawtooth', 70, 140, 0.32, 0.05); },
+  tick(i) { if (!this.ok('tick', 30)) return; const f = 300 * Math.pow(2, Math.min(i, 36) / 12); this.tone('square', f, f, 0.05, 0.06); },
+  slam() { if (!this.ok('slam', 80)) return; this.tone('sine', 140, 45, 0.35, 0.8); this.noise('lowpass', 900, 120, 0.2, 0.35); },
+  fanfare() { if (!this.ctx || this.muted) return; [0, 4, 7, 12, 16].forEach((s, i) => { const f = 392 * 2 ** (s / 12); this.tone('triangle', f, f, 0.45, 0.16, i * 0.085); }); },
+  sad() { if (!this.ctx || this.muted) return; this.tone('triangle', 330, 150, 0.9, 0.2); this.tone('triangle', 247, 120, 1.1, 0.14, 0.15); },
+};
+
+// ---------- fyzika: Rapier (WASM), záloha cannon-es (čisté JS) ----------
+function rapierPhysics(R) {
+  let world;
+  const reset = () => { if (world) world.free(); world = new R.World({ x: 0, y: -G, z: 0 }); world.integrationParameters.numSolverIterations = 8; };
+  reset();
+  const cd = s => s.t === 'box' ? R.ColliderDesc.cuboid(s.x / 2, s.y / 2, s.z / 2) : s.t === 'cyl' ? R.ColliderDesc.cylinder(s.h / 2, s.r) : R.ColliderDesc.ball(s.r);
+  return {
+    name: 'Rapier', reset,
+    addStatic(s, p) { world.createCollider(cd(s).setTranslation(p.x, p.y, p.z).setFriction(0.9)); },
+    add(s, p, q, o) {
+      const d = R.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+        .setLinearDamping(o.linDamp ?? 0.03).setAngularDamping(o.angDamp ?? 0.12);
+      if (o.sleeping) d.setSleeping(true);
+      if (o.ccd) d.setCcdEnabled(true);
+      const b = world.createRigidBody(d);
+      world.createCollider(cd(s).setDensity(o.density).setFriction(o.friction ?? 0.75).setRestitution(o.restitution ?? 0.04), b);
+      return b;
+    },
+    pos: b => b.translation(), rot: b => b.rotation(), vel: b => b.linvel(),
+    setVel(b, v) { b.setLinvel(v, true); }, setAngVel(b, v) { b.setAngvel(v, true); },
+    impulse(b, v) { b.applyImpulse(v, true); },
+    damping(b, l, a) { b.setLinearDamping(l); b.setAngularDamping(a); },
+    sleeping: b => b.isSleeping(),
+    remove(b) { world.removeRigidBody(b); },
+    step(h) { world.timestep = h; world.step(); },
+  };
+}
+function cannonPhysics(C) {
+  let world;
+  const reset = () => {
+    world = new C.World({ gravity: new C.Vec3(0, -G, 0), allowSleep: true });
+    world.broadphase = new C.SAPBroadphase(world); world.solver.iterations = 14;
+    world.defaultContactMaterial.friction = 0.6; world.defaultContactMaterial.restitution = 0.04;
+  };
+  reset();
+  const shape = s => s.t === 'box' ? new C.Box(new C.Vec3(s.x / 2, s.y / 2, s.z / 2)) : s.t === 'cyl' ? new C.Cylinder(s.r, s.r, s.h, 14) : new C.Sphere(s.r);
+  return {
+    name: 'cannon-es', reset,
+    addStatic(s, p) { world.addBody(new C.Body({ mass: 0, shape: shape(s), position: new C.Vec3(p.x, p.y, p.z) })); },
+    add(s, p, q, o) {
+      const b = new C.Body({ mass: o.density * volume(s), shape: shape(s), position: new C.Vec3(p.x, p.y, p.z), linearDamping: o.linDamp ?? 0.03, angularDamping: o.angDamp ?? 0.12 });
+      b.quaternion.set(q.x, q.y, q.z, q.w); b.sleepSpeedLimit = 0.2; b.sleepTimeLimit = 0.6;
+      world.addBody(b); if (o.sleeping) b.sleep();
+      return b;
+    },
+    pos: b => b.position, rot: b => b.quaternion, vel: b => b.velocity,
+    setVel(b, v) { b.wakeUp(); b.velocity.set(v.x, v.y, v.z); },
+    setAngVel(b, v) { b.angularVelocity.set(v.x, v.y, v.z); },
+    impulse(b, v) { b.wakeUp(); b.applyImpulse(new C.Vec3(v.x, v.y, v.z)); },
+    damping(b, l, a) { b.linearDamping = l; b.angularDamping = a; },
+    sleeping: b => b.sleepState === C.Body.SLEEPING,
+    remove(b) { world.removeBody(b); },
+    step(h) { world.step(h / 2); world.step(h / 2); },   // bez CCD: dva podkroky proti protunelování koule
+  };
+}
+const volume = s => s.t === 'box' ? s.x * s.y * s.z : s.t === 'cyl' ? Math.PI * s.r * s.r * s.h : 4 / 3 * Math.PI * s.r ** 3;
+async function makePhysics() {
+  if (location.hash !== '#cannon') {
+    try { const mod = await import(RAPIER_URL); const R = mod.default ?? mod; await R.init(); return rapierPhysics(R); }
+    catch (e) { console.warn('Rapier se nenačetl, beru cannon-es', e); }
+  }
+  return cannonPhysics(await import(CANNON_URL));
+}
+
+// ---------- renderer, scéna, světlo ----------
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+const FOG = new THREE.Color(0x7d5275);
+scene.fog = new THREE.Fog(FOG, 55, 175);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1400);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.32;
+
+const hemi = new THREE.HemisphereLight(0x958cdc, 0x5a3a48, 0.95);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffe4c8, 3.1);
+key.position.set(-16, 22, 18); key.target.position.set(0, 2, 0);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -16, right: 16, top: 16, bottom: -12, near: 1, far: 75 });
+key.shadow.bias = -0.0003; key.shadow.normalBias = 0.03; key.shadow.radius = 3;
+scene.add(key, key.target);
+const RIM_DIR = V3(18, 10, -24);
+const rim = new THREE.DirectionalLight(0xff9a6a, 2.3);
+rim.position.copy(RIM_DIR);
+scene.add(rim);
+const boomLight = new THREE.PointLight(0xffa24a, 0, 0, 2);
+scene.add(boomLight);
+
+// obloha: soumrak, slunce nízko za věžemi (rim světlo má stejný směr)
+const sky = new THREE.Mesh(new THREE.SphereGeometry(600, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: {
+    top: { value: new THREE.Color(0x14123a) }, mid: { value: new THREE.Color(0x5d3b7c) }, hz: { value: new THREE.Color(0xff9563) },
+    below: { value: FOG.clone() }, deep: { value: new THREE.Color(0x1b1531) },
+    sunDir: { value: RIM_DIR.clone().normalize() }, sunCol: { value: new THREE.Color(0xffb27a) },
+  },
+  vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }`,
+  fragmentShader: `uniform vec3 top, mid, hz, below, deep, sunCol, sunDir; varying vec3 vDir;
+    void main(){
+      vec3 d = normalize(vDir); float y = d.y; vec3 c;
+      if (y > 0.0) { c = mix(hz, mid, smoothstep(0.0, 0.2, y)); c = mix(c, top, smoothstep(0.16, 0.7, y)); }
+      else { c = mix(below, deep, smoothstep(0.02, 0.5, -y)); c = mix(hz, c, smoothstep(0.0, 0.05, -y)); }
+      float s = max(dot(d, sunDir), 0.0);
+      c += sunCol * (pow(s, 90.0) * 2.4 + pow(s, 8.0) * 0.28);
+      gl_FragColor = vec4(c, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+}));
+sky.renderOrder = -1;
+scene.add(sky);
+
+function canvasTex(w, h, draw, repeat = [1, 1]) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeat[0], repeat[1]); t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+function speckle(ctx, w, h, n, a) {
+  for (let i = 0; i < n; i++) { ctx.fillStyle = Math.random() < 0.5 ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a * 0.8})`; ctx.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1 + Math.random() * 3); }
+}
+
+// plovoucí ostrov s betonovou plochou staveniště; dlaždice = 1 m
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x5b4653, roughness: 1, flatShading: true });
+function rockGeo(radius, height, seed) {
+  const g = new THREE.ConeGeometry(radius, height, 11, 5); g.rotateX(Math.PI);
+  const r = rng(seed), pos = g.attributes.position, offs = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i); if (y > height / 2 - 0.01) continue;
+    const k = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+    let o = offs.get(k); if (!o) { o = [(r() - 0.5) * radius * 0.16, (r() - 0.5) * height * 0.06, (r() - 0.5) * radius * 0.16]; offs.set(k, o); }
+    pos.setXYZ(i, x + o[0], y + o[1], z + o[2]);
+  }
+  g.computeVertexNormals(); return g;
+}
+const floorTex = canvasTex(256, 256, (c, w, h) => {
+  c.fillStyle = '#ad9473'; c.fillRect(0, 0, w, h); speckle(c, w, h, 2600, 0.06);
+  c.strokeStyle = 'rgba(70,48,30,.32)'; c.lineWidth = 3;
+  for (const v of [1.5, 128]) { c.beginPath(); c.moveTo(v, 0); c.lineTo(v, h); c.moveTo(0, v); c.lineTo(w, v); c.stroke(); }
+}, [8.2, 5.7]);
+const sideMat = new THREE.MeshStandardMaterial({ color: 0x6d5560, roughness: 1 });
+const topMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 });
+const platform = new THREE.Mesh(new THREE.BoxGeometry(16.4, 1.2, 11.4), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat]);
+platform.position.set(0, -0.6, 0.5); platform.receiveShadow = true; platform.castShadow = true;
+scene.add(platform);
+const island = new THREE.Mesh(rockGeo(9.6, 13, 7), rockMat);
+island.position.set(0, -1.2 - 6.5, 0.5); island.scale.set(1, 1, 0.7); island.receiveShadow = true;
+scene.add(island);
+const stripeTex = canvasTex(128, 32, (c, w, h) => {
+  c.fillStyle = '#ffc23a'; c.fillRect(0, 0, w, h); c.fillStyle = '#231b2c';
+  for (let x = -h; x < w + h; x += 32) { c.beginPath(); c.moveTo(x, h); c.lineTo(x + 16, h); c.lineTo(x + 16 + h, 0); c.lineTo(x + h, 0); c.fill(); }
+}, [20, 1]);
+const stripe = new THREE.Mesh(new THREE.BoxGeometry(16.4, 0.05, 0.4), new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.7 }));
+stripe.position.set(0, 0.026, 5.95); stripe.receiveShadow = true;
+scene.add(stripe);
+
+// ostrůvek s prakem
+const slingIsland = new THREE.Group(); scene.add(slingIsland);
+const slingTop = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.2, 0.5, 11), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 }));
+slingTop.position.set(0, 0.35, 22); slingTop.receiveShadow = true;
+const slingRock = new THREE.Mesh(rockGeo(2.2, 5, 3), rockMat); slingRock.position.set(0, 0.1 - 2.5, 22);
+slingIsland.add(slingTop, slingRock);
+const forkMat = new THREE.MeshStandardMaterial({ color: 0x6b4428, roughness: 0.8 });
+const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 1.2, 10), forkMat); post.position.set(0, 1.2, 22.2); post.castShadow = true;
+slingIsland.add(post);
+const TIPS = [V3(-0.6, 2.5, 22.2), V3(0.6, 2.5, 22.2)];
+const FORK_BASE = V3(0, 1.78, 22.2);
+const bandMat = new THREE.MeshStandardMaterial({ color: 0x2a1d1a, roughness: 0.6 });
+function rod(a, b, r, mat) { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, 8), mat); m.castShadow = true; setRod(m, a, b); return m; }
+const _up = V3(0, 1, 0), _dir = V3();
+function setRod(m, a, b) { _dir.subVectors(b, a); const len = _dir.length(); m.position.copy(a).addScaledVector(_dir, 0.5); m.scale.set(1, Math.max(len, 0.001), 1); m.quaternion.setFromUnitVectors(_up, _dir.normalize()); }
+for (const t of TIPS) slingIsland.add(rod(FORK_BASE, t, 0.085, forkMat));
+const bands = TIPS.map(() => { const m = rod(TIPS[0], SLING, 0.035, bandMat); slingIsland.add(m); return m; });
+
+// mraky pod ostrovem
+const clouds = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color: 0xf2c4c0, roughness: 1, flatShading: true }), 90);
+const cloudData = [];
+{
+  const r = rng(42), m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  for (let i = 0; i < 90; i++) {
+    const d = { p: V3((r() - 0.5) * 300, -14 - r() * 20, -170 + r() * 230), s: V3(5 + r() * 12, 2 + r() * 4, 4 + r() * 9), v: 0.4 + r() * 0.8 };
+    cloudData.push(d); m.compose(d.p, q, d.s); clouds.setMatrixAt(i, m);
+  }
+}
+scene.add(clouds);
+
+// ---------- realistický vzhled pro Moje místo: denní obloha, fotografické textury, okna ----------
+// Textury jsou CC0 z Poly Haven (kaskada/tex/SOURCES.md), čtou se jako soubory vedle stránky.
+const imgLoader = new THREE.ImageLoader();
+const TEX = {};
+const BLANK = (() => { const c = document.createElement('canvas'); c.width = c.height = 2; const x = c.getContext('2d'); x.fillStyle = '#d6d2ca'; x.fillRect(0, 0, 2, 2); return c; })();
+function photo(name, onload) {
+  if (TEX[name]) return TEX[name];
+  const t = new THREE.Texture(BLANK);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); t.needsUpdate = true;
+  imgLoader.load(`tex/${name}.jpg`, img => { t.dispose(); t.image = img; t.needsUpdate = true; onload && onload(img); }   // jiný rozměr než zástupce → nová alokace na GPU
+ , undefined, () => console.warn('Chybí textura', name));
+  return (TEX[name] = t);
+}
+// Triplanární projekce: textura navazuje přes všechny bloky zdi. 'rest' = klidová poloha bloku (textura pak drží na bloku i v letu),
+// 'world' = statická geometrie ve světových souřadnicích. Velikost dlaždice je v metrech, uInvS převádí herní jednotky na metry.
+const uInvS = { value: 5 };
+function triplanar(mat, meters, mode) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uInvS = uInvS;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vTp;\nvarying vec3 vTpN;${mode === 'rest' ? '\nattribute vec3 aRest;' : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${mode === 'rest'
+        ? 'vec3 tpS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));\nvTp = position * tpS + aRest; vTpN = normal;'
+        : 'vTp = (modelMatrix * vec4(position, 1.0)).xyz; vTpN = normalize(mat3(modelMatrix) * normal);'}`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTp;\nvarying vec3 vTpN;\nuniform float uInvS;')
+      .replace('#include <map_fragment>', `
+        vec3 tpA = abs(vTpN);
+        vec2 tpUv = tpA.x > tpA.y && tpA.x > tpA.z ? vTp.zy : (tpA.y > tpA.z ? vTp.xz : vTp.xy);
+        tpUv *= uInvS / ${meters.toFixed(3)};
+        vec4 sampledDiffuseColor = texture2D(map, tpUv);
+        diffuseColor *= sampledDiffuseColor;`)
+      .replace('#include <roughnessmap_fragment>', `
+        float roughnessFactor = roughness;
+        #ifdef USE_ROUGHNESSMAP
+          roughnessFactor *= texture2D(roughnessMap, tpUv).g;
+        #endif`);
+  };
+  mat.customProgramCacheKey = () => `tp-${mode}-${meters}`;
+  return mat;
+}
+// Okno: rám, příčle, tmavé sklo s odleskem, parapet a stín ostění. Druhé plátno nese drsnost (sklo hladké, zeď hrubá).
+function windowArt(w, h, box) {
+  const col = document.createElement('canvas'), rgh = document.createElement('canvas');
+  col.width = rgh.width = w; col.height = rgh.height = h;
+  const c = col.getContext('2d'), r = rgh.getContext('2d');
+  const paint = img => {
+    if (img) c.drawImage(img, 0, 0, w, h); else { c.fillStyle = '#e4dfd5'; c.fillRect(0, 0, w, h); }
+    r.fillStyle = 'rgb(235,235,235)'; r.fillRect(0, 0, w, h);
+    const x0 = box[0] * w, y0 = box[1] * h, x1 = box[2] * w, y1 = box[3] * h, fw = Math.max(2, (x1 - x0) * 0.08);
+    c.fillStyle = 'rgba(38,33,28,.42)'; c.fillRect(x0 - 3, y0 - 4, x1 - x0 + 6, y1 - y0 + 6);
+    c.fillStyle = '#f2f0eb'; c.fillRect(x0, y0, x1 - x0, y1 - y0);
+    r.fillStyle = 'rgb(115,115,115)'; r.fillRect(x0, y0, x1 - x0, y1 - y0);
+    const gx0 = x0 + fw, gy0 = y0 + fw, gx1 = x1 - fw, gy1 = y1 - fw;
+    const g = c.createLinearGradient(0, gy0, 0, gy1); g.addColorStop(0, '#6c8196'); g.addColorStop(0.5, '#2f3b49'); g.addColorStop(1, '#1b222a');
+    c.fillStyle = g; c.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+    r.fillStyle = 'rgb(12,12,12)'; r.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+    const mx = (gx0 + gx1) / 2, ty = gy0 + (gy1 - gy0) * 0.32;
+    for (const ctx of [c, r]) { ctx.fillStyle = ctx === c ? '#f2f0eb' : 'rgb(115,115,115)'; ctx.fillRect(mx - fw * 0.4, gy0, fw * 0.8, gy1 - gy0); ctx.fillRect(gx0, ty - fw * 0.4, gx1 - gx0, fw * 0.8); }
+    c.fillStyle = 'rgba(255,255,255,.09)'; c.beginPath(); c.moveTo(gx0, gy1); c.lineTo(gx0 + (gx1 - gx0) * 0.4, gy0); c.lineTo(gx0 + (gx1 - gx0) * 0.62, gy0); c.lineTo(gx0 + (gx1 - gx0) * 0.22, gy1); c.fill();
+    c.fillStyle = '#dad6ce'; c.fillRect(x0 - fw, y1, x1 - x0 + 2 * fw, fw * 0.9);
+    c.fillStyle = 'rgba(30,26,22,.38)'; c.fillRect(x0 - fw, y1 + fw * 0.9, x1 - x0 + 2 * fw, fw * 0.7);
+  };
+  paint(null);
+  const tc = new THREE.CanvasTexture(col); tc.colorSpace = THREE.SRGBColorSpace; tc.wrapS = tc.wrapT = THREE.RepeatWrapping; tc.anisotropy = 8;
+  const tr = new THREE.CanvasTexture(rgh); tr.wrapS = tr.wrapT = THREE.RepeatWrapping;
+  return { tc, tr, paint: img => { paint(img); tc.needsUpdate = true; tr.needsUpdate = true; } };
+}
+const winArt = windowArt(128, 256, [0.15, 0.13, 0.85, 0.8]);       // jeden okenní blok (buňka × patro)
+const facadeArt = windowArt(256, 256, [0.31, 0.2, 0.69, 0.7]);     // dlaždice fasády okolních domů: 3 × 3 m s jedním oknem
+photo('plaster', img => { winArt.paint(img); facadeArt.paint(img); });
+const REAL = {
+  wallP: triplanar(new THREE.MeshStandardMaterial({ map: photo('plaster'), roughness: 0.93 }), 2.0, 'rest'),
+  wallB: triplanar(new THREE.MeshStandardMaterial({ map: photo('brick'), roughness: 0.9 }), 1.0, 'rest'),
+  wallC: triplanar(new THREE.MeshStandardMaterial({ map: photo('concrete'), roughness: 0.9 }), 2.7, 'rest'),
+  slab: triplanar(new THREE.MeshStandardMaterial({ map: photo('slab'), roughness: 0.92 }), 2.0, 'rest'),
+  roof: triplanar(new THREE.MeshStandardMaterial({ map: photo('rooftiles'), roughness: 0.78 }), 2.5, 'rest'),
+  flat: triplanar(new THREE.MeshStandardMaterial({ map: photo('flatroof'), roughness: 0.95 }), 2.1, 'rest'),
+  win: new THREE.MeshStandardMaterial({ map: winArt.tc, roughnessMap: winArt.tr, roughness: 1 }),
+  flag: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 }),
+  ctxWall: triplanar(new THREE.MeshStandardMaterial({ map: facadeArt.tc, roughnessMap: facadeArt.tr, roughness: 1, vertexColors: true }), 3.0, 'world'),
+  ctxRoof: triplanar(new THREE.MeshStandardMaterial({ map: photo('flatroof'), roughness: 0.95, vertexColors: true }), 2.1, 'world'),
+  far: triplanar(new THREE.MeshStandardMaterial({ map: photo('grass'), color: 0xb9d68f, roughness: 1 }), 2.5, 'world'),
+};
+// zem místa: maska (R silnice, G tráva, B dlažba, černá voda) + detailní fotografie ve světových souřadnicích
+const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96 });
+groundMat.onBeforeCompile = sh => {
+  Object.assign(sh.uniforms, { uInvS, tRoad: { value: photo('asphalt') }, tGrass: { value: photo('grass') }, tPave: { value: photo('pavers') } });
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGw;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGw = (modelMatrix * vec4(position, 1.0)).xyz;');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGw;\nuniform float uInvS;\nuniform sampler2D tRoad, tGrass, tPave;')
+    .replace('#include <map_fragment>', `
+      vec4 msk = texture2D(map, vMapUv);
+      vec2 gw = vGw.xz * uInvS;
+      vec3 cRoad = texture2D(tRoad, gw / 4.0).rgb, cGrass = texture2D(tGrass, gw / 2.5).rgb * vec3(0.72, 0.98, 0.5), cPave = texture2D(tPave, gw / 2.0).rgb;
+      float land = msk.r + msk.g + msk.b;
+      vec3 gc = (cRoad * msk.r + cGrass * msk.g + cPave * msk.b) / max(land, 1.0) + vec3(0.06, 0.1, 0.13) * clamp(1.0 - land, 0.0, 1.0);
+      diffuseColor.rgb *= gc;`);
+};
+groundMat.customProgramCacheKey = () => 'ground-splat';
+const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), groundMat);
+groundMesh.receiveShadow = true; groundMesh.visible = false; scene.add(groundMesh);
+const farGround = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), REAL.far);
+farGround.position.y = -0.04; farGround.receiveShadow = true; farGround.visible = false; scene.add(farGround);
+const ctxGroup = new THREE.Group(); ctxGroup.visible = false; scene.add(ctxGroup);
+// stromy: kmen + dva chomáče koruny, nepravidelný tvar z deformované koule
+const crownGeo = (() => {
+  const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, r = rng(77), off = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
+    let f = off.get(k); if (!f) { f = 0.82 + r() * 0.32; off.set(k, f); }
+    p.setXYZ(i, p.getX(i) * f, p.getY(i) * f * 0.86, p.getZ(i) * f);
+  }
+  g.computeVertexNormals(); return g;
+})();
+const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.75, 1, 7), new THREE.MeshStandardMaterial({ color: 0x5b4a3c, roughness: 0.92 }), 700);
+const crowns = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.88 }), 1400);
+for (const m of [trunks, crowns]) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; ctxGroup.add(m); }
+// denní obloha (Preetham) a slunce: nízko z levé strany za kamerou, ať fasády dostanou světlo i dlouhé stíny (3d/11)
+const daySky = new Sky(); daySky.scale.setScalar(1200); daySky.visible = false; scene.add(daySky);
+const SUN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 31), THREE.MathUtils.degToRad(-38));
+Object.entries({ turbidity: 4.5, rayleigh: 1.3, mieCoefficient: 0.004, mieDirectionalG: 0.8 }).forEach(([k, v]) => { daySky.material.uniforms[k].value = v; });
+daySky.material.uniforms.sunPosition.value.copy(SUN);
+daySky.material.uniforms.showSunDisc.value = false;   // disk má jas ~10⁷, v half-float bufferu z něj je Inf → NaN v bloomu i AO
+let dayEnv = null;
+function getDayEnv() {
+  if (dayEnv) return dayEnv;
+  const envScene = new THREE.Scene(), sk = new Sky(); sk.scale.setScalar(1000);
+  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) sk.material.uniforms[k].value = daySky.material.uniforms[k].value;
+  sk.material.uniforms.sunPosition.value.copy(SUN); sk.material.uniforms.showSunDisc.value = false;
+  const gnd = new THREE.Mesh(new THREE.CircleGeometry(900, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x6f6a5c })); gnd.position.y = -2;
+  envScene.add(sk, gnd);
+  return (dayEnv = pmrem.fromScene(envScene, 0.02).texture);
+}
+const fogDusk = scene.fog, fogDay = new THREE.Fog(0xdde5ec, 110, 720);   // barva = obloha u obzoru, ať zem do nebe přejde bez švu (3d/09)
+const duskEnv = scene.environment;
+// klín střechy: dno 1 × 1, svislý konec na +z, šikmá plocha stoupá od −z k +z (otočením kolem Y míří kamkoli)
+function wedgeGeometry() {
+  const pos = [], nor = [];
+  const P = (x, z, y) => new THREE.Vector3(x, y, z), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+  const tri = (p0, p1, p2, n) => {
+    _a.subVectors(p1, p0).cross(_b.subVectors(p2, p0));
+    const pts = _a.dot(n) < 0 ? [p0, p2, p1] : [p0, p1, p2];
+    for (const p of pts) { pos.push(p.x, p.y, p.z); nor.push(n.x, n.y, n.z); }
+  };
+  const quad = (a, b, c, d, n) => { tri(a, b, c, n); tri(a, c, d, n); };
+  const h = 0.5, s = Math.SQRT1_2;
+  const A0 = P(-h, -h, -h), A1 = P(h, -h, -h), B0 = P(-h, h, -h), B1 = P(h, h, -h), C0 = P(-h, h, h), C1 = P(h, h, h);
+  quad(A0, A1, B1, B0, new THREE.Vector3(0, -1, 0));
+  quad(B0, B1, C1, C0, new THREE.Vector3(0, 0, 1));
+  quad(A0, A1, C1, C0, new THREE.Vector3(0, s, -s));
+  tri(A0, B0, C0, new THREE.Vector3(-1, 0, 0));
+  tri(A1, B1, C1, new THREE.Vector3(1, 0, 0));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0), 2));
+  return g;
+}
+
+// ---------- materiály a druhy bloků ----------
+const MATS = {
+  wood: { density: 0.6, value: 10, base: 0xc88b52 },
+  stone: { density: 2.4, value: 25, base: 0x9199ac },
+  glass: { density: 2.0, value: 15 },
+  tnt: { density: 0.9, value: 40 },
+  gold: { density: 9.0, value: 60 },
+  brick: { density: 1.8, value: 10 },
+  concrete: { density: 2.4, value: 15 },
+  roof: { density: 1.4, value: 10 },
+};
+const KINDS = {
+  pillar: { s: { t: 'box', x: 0.4, y: 1.6, z: 0.4 }, mat: 'wood', cap: 90 },
+  pillarS: { s: { t: 'box', x: 0.46, y: 1.6, z: 0.46 }, mat: 'stone', cap: 90 },
+  slab: { s: { t: 'box', x: 3.0, y: 0.26, z: 3.0 }, mat: 'wood', cap: 30 },
+  slabS: { s: { t: 'box', x: 3.0, y: 0.3, z: 3.0 }, mat: 'stone', cap: 30 },
+  plank: { s: { t: 'box', x: 2.2, y: 0.2, z: 0.55 }, mat: 'wood', cap: 30 },
+  brick: { s: { t: 'box', x: 0.8, y: 0.4, z: 0.5 }, mat: 'stone', cap: 90 },
+  pane: { s: { t: 'box', x: 1.7, y: 1.5, z: 0.08 }, mat: 'glass', cap: 40 },
+  paneSide: { s: { t: 'box', x: 0.08, y: 1.5, z: 1.7 }, mat: 'glass', cap: 40 },
+  crate: { s: { t: 'box', x: 0.7, y: 0.7, z: 0.7 }, mat: 'wood', cap: 60 },
+  gold: { s: { t: 'box', x: 0.62, y: 0.34, z: 0.36 }, mat: 'gold', cap: 30 },
+  tnt: { s: { t: 'cyl', r: 0.34, h: 0.82 }, mat: 'tnt', cap: 40 },
+  // skutečné budovy: jednotková kostka, rozměr nese každý blok zvlášť
+  pWallP: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'brick', rmat: 'wallP', cap: 2600, unit: true, tp: true },
+  pWallB: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'brick', rmat: 'wallB', cap: 1400, unit: true, tp: true },
+  pWallC: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'concrete', rmat: 'wallC', cap: 1800, unit: true, tp: true },
+  pWin: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'glass', rmat: 'win', cap: 1400, unit: true },
+  pSlab: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'concrete', rmat: 'slab', cap: 1000, unit: true, tp: true },
+  pFlat: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'concrete', rmat: 'flat', cap: 700, unit: true, tp: true },
+  pRoof: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'roof', rmat: 'roof', cap: 1000, unit: true, tp: true },
+  pRoofW: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'roof', rmat: 'roof', cap: 1000, unit: true, tp: true, geo: 'wedge' },
+  pFlag: { s: { t: 'box', x: 1, y: 1, z: 1 }, mat: 'wood', rmat: 'flag', cap: 4, unit: true },
+};
+const drawTnt = (c, w, h) => {
+  c.fillStyle = '#c9261b'; c.fillRect(0, 0, w, h); speckle(c, w, h, 900, 0.07);
+  c.fillStyle = '#6e130c'; c.fillRect(0, 10, w, 9); c.fillRect(0, h - 19, w, 9);
+  c.fillStyle = '#f2e3c4'; c.fillRect(0, 42, w, 44);
+  c.fillStyle = '#1c1714'; c.font = '800 36px "Barlow Condensed", "Arial Narrow", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('TNT', 64, 65); c.fillText('TNT', 192, 65);
+};
+const tntTex = canvasTex(256, 128, drawTnt);
+document.fonts?.load('800 36px "Barlow Condensed"').then(() => { const c = tntTex.image; drawTnt(c.getContext('2d'), c.width, c.height); tntTex.needsUpdate = true; }).catch(() => {});
+const BLOCK_MATS = {
+  wood: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72 }),
+  stone: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0xa8ecff, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.4, emissive: 0x1e8fbf, emissiveIntensity: 0.45, depthWrite: false }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.22, emissive: 0x3a2400, emissiveIntensity: 0.5 }),
+  brick: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.86 }),
+  concrete: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92 }),
+  roof: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75 }),
+  wallP: REAL.wallP, wallB: REAL.wallB, wallC: REAL.wallC, win: REAL.win, slab: REAL.slab, flat: REAL.flat, roof: REAL.roof, flag: REAL.flag,
+  tnt: [new THREE.MeshStandardMaterial({ map: tntTex, roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: 0x8c1d14, roughness: 0.7 }), new THREE.MeshStandardMaterial({ color: 0x8c1d14, roughness: 0.7 })],
+};
+const GOLD_COL = new THREE.Color(0xffc83d);
+const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+const WHITE = new THREE.Color(1, 1, 1);
+const meshes = {};
+for (const [k, d] of Object.entries(KINDS)) {
+  const s = d.s;
+  const geo = d.geo === 'wedge' ? wedgeGeometry() : d.unit ? new THREE.BoxGeometry(1, 1, 1) : s.t === 'box' ? new RoundedBoxGeometry(s.x, s.y, s.z, 2, Math.min(0.06, Math.min(s.x, s.y, s.z) * 0.22)) : new THREE.CylinderGeometry(s.r, s.r, s.h, 22);
+  if (d.tp) geo.setAttribute('aRest', new THREE.InstancedBufferAttribute(new Float32Array(d.cap * 3), 3));
+  const m = new THREE.InstancedMesh(geo, BLOCK_MATS[d.rmat || d.mat], d.cap);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  m.castShadow = (d.rmat || d.mat) !== 'glass'; m.receiveShadow = true; m.frustumCulled = false;
+  for (let i = 0; i < d.cap; i++) { m.setMatrixAt(i, ZERO_M); m.setColorAt(i, WHITE); }
+  m.count = 0; m.userData.kind = k; meshes[k] = m; scene.add(m);
+}
+const aimTargets = [...Object.values(meshes), platform, groundMesh];
+
+// ---------- částice a efekty ----------
+const _m = new THREE.Matrix4(), _p = V3(), _q = new THREE.Quaternion(), _s = V3(), _c = new THREE.Color(), _v = V3(), _dq = new THREE.Quaternion();
+const onPlatform = p => p.x > PLAT.x0 && p.x < PLAT.x1 && p.z > PLAT.z0 && p.z < PLAT.z1;
+class Fx {
+  constructor(geo, mat, n, { shadow = false, color = false } = {}) {
+    this.mesh = new THREE.InstancedMesh(geo, mat, n); this.mesh.frustumCulled = false;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.mesh.castShadow = shadow;
+    this.list = []; this.free = [];
+    for (let i = n - 1; i >= 0; i--) { this.free.push(i); this.mesh.setMatrixAt(i, ZERO_M); if (color) this.mesh.setColorAt(i, WHITE); }
+    scene.add(this.mesh);
+  }
+  spawn(o) {
+    const i = this.free.pop(); if (i === undefined) return;
+    o.i = i; o.age = 0; o.q = o.q || new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
+    if (o.spin) o.axis = V3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    this.list.push(o);
+  }
+  clear() { for (const o of this.list) { this.mesh.setMatrixAt(o.i, ZERO_M); this.free.push(o.i); } this.list.length = 0; this.mesh.instanceMatrix.needsUpdate = true; }
+  update(dt) {
+    let col = false;
+    for (let k = this.list.length - 1; k >= 0; k--) {
+      const o = this.list[k]; o.age += dt; const t = o.age / o.life;
+      if (t >= 1) { this.mesh.setMatrixAt(o.i, ZERO_M); this.free.push(o.i); this.list.splice(k, 1); continue; }
+      o.v.y -= (o.grav ?? 1) * G * dt;
+      if (o.drag) o.v.multiplyScalar(Math.exp(-o.drag * dt));
+      o.p.addScaledVector(o.v, dt);
+      if (o.bounce && o.p.y < o.size && onPlatform(o.p)) { o.p.y = o.size; o.v.y = Math.abs(o.v.y) * o.bounce; o.v.x *= 0.6; o.v.z *= 0.6; if (o.spin) o.spin *= 0.6; }
+      if (o.spin) o.q.multiply(_dq.setFromAxisAngle(o.axis, o.spin * dt));
+      const sc = o.curve(t) * o.size;
+      if (o.dim) _s.set(o.dim.x * sc, o.dim.y * sc, o.dim.z * sc); else _s.setScalar(sc);
+      _m.compose(o.p, o.q, _s); this.mesh.setMatrixAt(o.i, _m);
+      if (o.paint) { o.paint(t, _c); this.mesh.setColorAt(o.i, _c); col = true; }
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (col) this.mesh.instanceColor.needsUpdate = true;
+  }
+}
+const curve = {
+  shrink: t => 1 - t,
+  pop: t => t < 0.18 ? easeOut(t / 0.18) : 1 - easeOut((t - 0.18) / 0.82) * 0.9,
+  puff: t => (0.35 + 0.9 * easeOut(Math.min(1, t * 2.2))) * (t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1),
+  hold: t => t > 0.8 ? (1 - t) / 0.2 : 1,
+};
+const icoLo = new THREE.IcosahedronGeometry(1, 0), icoHi = new THREE.IcosahedronGeometry(1, 1);
+const sparks = new Fx(icoLo, new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3, 0.9) }), 260);
+const flames = new Fx(icoHi, new THREE.MeshBasicMaterial({ color: 0xffffff }), 120, { color: true });
+const smoke = new Fx(icoHi, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true }), 220, { color: true });
+const shards = new Fx(new THREE.TetrahedronGeometry(1), new THREE.MeshStandardMaterial({ color: 0xbff3ff, roughness: 0.05, metalness: 0.2, emissive: 0x2a9fd0, emissiveIntensity: 0.9 }), 260);
+const chunks = new Fx(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }), 160, { shadow: true, color: true });
+const allFx = [sparks, flames, smoke, shards, chunks];
+// prach z bourání: měkké body (Points), rostou a řídnou; z dopadů a výbuchů se skládá demoliční oblak
+const DUST_N = 1800;
+const dPos = new Float32Array(DUST_N * 3), dSize = new Float32Array(DUST_N), dAlpha = new Float32Array(DUST_N);
+const dVel = new Float32Array(DUST_N * 3), dAge = new Float32Array(DUST_N), dLife = new Float32Array(DUST_N), dS0 = new Float32Array(DUST_N), dS1 = new Float32Array(DUST_N), dA = new Float32Array(DUST_N);
+const dustGeo = new THREE.BufferGeometry();
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3).setUsage(THREE.DynamicDrawUsage));
+dustGeo.setAttribute('aSize', new THREE.BufferAttribute(dSize, 1).setUsage(THREE.DynamicDrawUsage));
+dustGeo.setAttribute('aAlpha', new THREE.BufferAttribute(dAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+const dustMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, fog: true,
+  uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uScale: { value: 600 }, uColor: { value: new THREE.Color(0x8d7f8a) } }]),
+  vertexShader: `uniform float uScale;
+attribute float aSize;
+attribute float aAlpha;
+varying float vA;
+#include <fog_pars_vertex>
+void main() {
+  vA = aAlpha;
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_PointSize = aSize * uScale / max(-mvPosition.z, 0.1);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`,
+  fragmentShader: `uniform vec3 uColor;
+varying float vA;
+#include <common>
+#include <fog_pars_fragment>
+void main() {
+  float r = length(gl_PointCoord - 0.5) * 2.0;
+  if (r > 1.0 || vA < 0.003) discard;
+  gl_FragColor = vec4(uColor, pow(1.0 - r, 1.7) * vA);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`,
+});
+const dust = new THREE.Points(dustGeo, dustMat); dust.frustumCulled = false; scene.add(dust);
+const dustScale = () => { dustMat.uniforms.uScale.value = innerHeight * renderer.getPixelRatio() / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))); };
+dustScale(); addEventListener('resize', dustScale);
+let dustNext = 0, dustBudget = 80;
+function dustPuff(p, k = 1, spread = 0.35) {
+  if (dustBudget < 1) return; dustBudget--;
+  const i = dustNext; dustNext = (dustNext + 1) % DUST_N;
+  dPos[i * 3] = p.x + rnd(-spread, spread); dPos[i * 3 + 1] = Math.max(0.05, p.y + rnd(-spread, spread) * 0.5); dPos[i * 3 + 2] = p.z + rnd(-spread, spread);
+  dVel[i * 3] = rnd(-0.5, 0.5) * k; dVel[i * 3 + 1] = rnd(0.1, 0.55) * k; dVel[i * 3 + 2] = rnd(-0.5, 0.5) * k;
+  dAge[i] = 0; dLife[i] = rnd(3, 7); dS0[i] = rnd(0.35, 0.7) * k; dS1[i] = dS0[i] * rnd(3, 5); dA[i] = rnd(0.22, 0.4);
+}
+function updateDust(dt) {
+  dustBudget = Math.min(dustBudget + dt * 420, 90);
+  const drag = Math.exp(-0.7 * dt);
+  for (let i = 0; i < DUST_N; i++) {
+    if (dLife[i] <= 0) continue;
+    dAge[i] += dt; const t = dAge[i] / dLife[i];
+    if (t >= 1) { dLife[i] = 0; dSize[i] = 0; dAlpha[i] = 0; continue; }
+    dVel[i * 3] *= drag; dVel[i * 3 + 1] = dVel[i * 3 + 1] * drag + 0.03 * dt; dVel[i * 3 + 2] *= drag;
+    dPos[i * 3] += dVel[i * 3] * dt; dPos[i * 3 + 1] += dVel[i * 3 + 1] * dt; dPos[i * 3 + 2] += dVel[i * 3 + 2] * dt;
+    dSize[i] = dS0[i] + (dS1[i] - dS0[i]) * easeOut(t);
+    dAlpha[i] = dA[i] * Math.min(1, t / 0.06) * Math.pow(1 - t, 1.4);
+  }
+  dustGeo.attributes.position.needsUpdate = dustGeo.attributes.aSize.needsUpdate = dustGeo.attributes.aAlpha.needsUpdate = true;
+}
+function clearDust() { dLife.fill(0); dSize.fill(0); dAlpha.fill(0); }
+const rings = Array.from({ length: 6 }, () => {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 72), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.25, 0.55), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  m.rotation.x = -Math.PI / 2; m.visible = false; m.userData.t = 1; scene.add(m); return m;
+});
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndDir = () => V3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+
+function fxExplosion(P) {
+  for (let i = 0; i < 12; i++) {
+    const d = rndDir();
+    flames.spawn({ p: P.clone().addScaledVector(d, rnd(0.1, 0.5)), v: d.multiplyScalar(rnd(3, 7)).add(V3(0, 2, 0)), life: rnd(0.35, 0.7), size: rnd(0.6, 1.3), grav: -0.15, drag: 3.2, curve: curve.pop,
+      paint: (t, c) => t < 0.1 ? c.setRGB(4.5, 3.6, 2.6) : t < 0.45 ? c.setRGB(3.8, 1.35, 0.3) : c.setRGB(0.9 * (1 - t), 0.16 * (1 - t), 0.06) });
+  }
+  for (let i = 0; i < 54; i++) sparks.spawn({ p: P.clone(), v: rndDir().multiplyScalar(rnd(8, 19)).add(V3(0, 4, 0)), life: rnd(0.5, 1.1), size: rnd(0.05, 0.11), grav: 0.5, drag: 0.8, curve: curve.shrink });
+  const day = S.kind === 'place';
+  for (let i = 0; i < (day ? 0 : 12); i++) {   // ve dne kouř dělá měkký prach (dustPuff), koule by vypadaly jako sníh
+    const d = rndDir(); const g = rnd(0.12, 0.2) * (day ? 2.6 : 1);
+    smoke.spawn({ p: P.clone().addScaledVector(d, rnd(0.2, 0.7)), v: d.multiplyScalar(rnd(0.6, 2)).add(V3(0, rnd(1, 2.2), 0)), life: rnd(1.8, 3.2), size: rnd(0.8, 1.6), grav: -0.03, drag: 1.4, curve: curve.puff,
+      paint: (t, c) => day ? c.setRGB(g * 1.05, g * 0.98, g * 0.9) : c.setRGB(g + 0.05, g, g + 0.07) });
+  }
+  for (let i = 0; i < 10; i++) {
+    const s = rnd(0.12, 0.26), w = Math.random() < 0.5;
+    chunks.spawn({ p: P.clone(), v: rndDir().multiplyScalar(rnd(4, 9)).add(V3(0, 5, 0)), life: rnd(1.8, 2.6), size: s, dim: V3(1, rnd(0.4, 1), rnd(0.5, 1.4)), bounce: 0.3, spin: rnd(6, 14), curve: curve.hold,
+      paint: (t, c) => w ? c.setHex(0x9a6a3e) : c.setHex(0x3a2b30) });
+  }
+  const r = rings.find(m => m.userData.t >= 1) || rings[0];
+  r.position.set(P.x, Math.max(P.y, 0.05), P.z); r.userData.t = 0; r.visible = true;
+  boomLight.position.copy(P); boomLight.intensity = Math.max(boomLight.intensity, 700);
+}
+function fxDust(p, k) {
+  for (let i = 0; i < 4; i++) {
+    const g = rnd(0.55, 0.7);
+    smoke.spawn({ p: V3(p.x + rnd(-0.3, 0.3), p.y + rnd(-0.2, 0.2), p.z + rnd(-0.3, 0.3)), v: V3(rnd(-1, 1), rnd(0.3, 1.2), rnd(-1, 1)), life: rnd(0.6, 1.1), size: rnd(0.22, 0.42) * (0.7 + k * 0.5), grav: -0.02, drag: 2.2, curve: curve.puff,
+      paint: (t, c) => c.setRGB(g * 0.95, g * 0.82, g * 0.72) });
+  }
+}
+function fxShatter(p, v) {
+  for (let i = 0; i < 18; i++) shards.spawn({ p: V3(p.x + rnd(-0.6, 0.6), p.y + rnd(-0.6, 0.6), p.z + rnd(-0.1, 0.1)), v: V3(v.x * 0.5 + rnd(-3, 3), v.y * 0.5 + rnd(0, 4), v.z * 0.5 + rnd(-3, 3)), life: rnd(1.0, 1.8), size: rnd(0.08, 0.2), dim: V3(1, 0.15, 0.8), bounce: 0.35, spin: rnd(8, 20), curve: curve.hold });
+}
+
+// stopa koule, tečky dráhy, zaměřovač
+const TRAIL_N = 26;
+const trail = new THREE.InstancedMesh(icoHi, new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.3, 1.5) }), TRAIL_N);
+trail.frustumCulled = false; scene.add(trail);
+const trailPts = [];
+const DOTS = 40;
+const dots = new THREE.InstancedMesh(icoLo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2, 1.75, 1.4) }), DOTS);
+dots.frustumCulled = false; scene.add(dots);
+const reticle = new THREE.Group();
+const retRing = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 2.4, 0.4), side: THREE.DoubleSide, depthTest: false, transparent: true }));
+const retDot = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16), retRing.material);
+reticle.add(retRing, retDot); retRing.renderOrder = retDot.renderOrder = 5; scene.add(reticle);
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 16), new THREE.MeshStandardMaterial({ color: 0x30343d, metalness: 0.85, roughness: 0.3 }));
+ballMesh.castShadow = true; scene.add(ballMesh);
+
+// ---------- postprocess ----------
+const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+const composer = new EffectComposer(renderer, rt);
+composer.setPixelRatio(Math.min(devicePixelRatio, 2));
+composer.setSize(innerWidth, innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+// okluze v koutech a pod stropy: bez ní působí bloky jako nalepené (zapnutá jen v režimu místa)
+const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+gtao.output = GTAOPass.OUTPUT.Default; gtao.blendIntensity = 1; gtao.enabled = false;
+gtao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.4, thickness: 1.5, scale: 1.1, samples: 16 });
+gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+composer.addPass(gtao);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.75, 0.55, 1.15);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- stav hry ----------
+let phys = null;
+const blocks = [];
+const used = {};
+const timers = [];
+const S = {
+  state: 'loading', level: store.get('level', 1), total: 0, target: 0, shots: SHOTS,
+  run: 0, best: store.get('best', 0), mode: 'flat', chips: 0, mult: 1, scoring: false,
+  since: 0, calm: 0, ball: null, firstHit: false, lastSlow: -9, lastIF: -9, name: '',
+  kind: 'campaign', maxShots: SHOTS, charges: 0, place: null, chain: 0,
+};
+let timeScale = 1, slowMin = 1, slowHold = 0, slowRel = 0.5, trauma = 0, clock = 0, ifFrames = 0, glowA = 0;
+const later = (d, fn) => timers.push({ t: d, fn });
+
+const NAMES = ['Tři věže', 'Skleněná ulice', 'Zlatá koruna', 'Sklad třaskavin', 'Dvojčata', 'Kamenná pevnost', 'Babylon', 'Most nad propastí', 'Poslední patro', 'Velká kaskáda'];
+const targetFor = L => Math.round(3000 * Math.pow(1.75, L - 1) / 100) * 100;
+
+function addBlock(kind, x, y, z, yaw = 0, o = {}) {
+  const d = KINDS[kind], m = meshes[kind], idx = used[kind]++;
+  if (idx >= d.cap) { used[kind]--; return null; }
+  const q = new THREE.Quaternion().setFromAxisAngle(_up, yaw);
+  const mat = MATS[d.mat];
+  const shape = o.size ? { t: 'box', x: o.size.x - 0.004, y: o.size.y - 0.004, z: o.size.z - 0.004 } : d.s;
+  const body = phys.add(shape, { x, y, z }, q, { density: mat.density, sleeping: true, friction: d.mat === 'glass' ? 0.4 : 0.75 });
+  const ar = m.geometry.attributes.aRest; if (ar) ar.setXYZ(idx, x, y, z);
+  if (o.color) m.setColorAt(idx, o.color);
+  else if (mat.base) { _c.setHex(mat.base).multiplyScalar(rnd(0.8, 1.08)); _c.offsetHSL(rnd(-0.015, 0.015), 0, 0); m.setColorAt(idx, _c); }
+  else if (d.mat === 'gold') m.setColorAt(idx, GOLD_COL);
+  else m.setColorAt(idx, WHITE);
+  const b = { kind, mat: d.mat, body, mesh: m, idx, start: V3(x, y, z), startQ: q.clone(), alive: true, toppled: false, fell: false, armed: false, fuse: 0, pv: V3(), mass: mat.density * volume(shape),
+    scale: o.size ? o.size.clone() : null, value: o.value ?? mat.value, target: !!o.target, charge: !!o.charge, flag: !!o.flag, multAdd: o.multAdd, label: o.label };
+  blocks.push(b); return b;
+}
+
+function buildTower(cx, stories, r, stoneP, crown) {
+  let y = 0; const tops = [];
+  for (let s = 0; s < stories; s++) {
+    const stone = r() < stoneP;
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) addBlock(stone ? 'pillarS' : 'pillar', cx + dx * 1.1, y + 0.8, dz * 1.1);
+    const roll = r();
+    if (roll < 0.24) addBlock('tnt', cx, y + 0.41, 0);
+    else if (roll < 0.4) addBlock('gold', cx, y + 0.17, 0, r() * 3);
+    else addBlock('crate', cx, y + 0.35, 0, r() * 0.6);
+    if (r() < 0.6) addBlock('pane', cx, y + 0.75, 1.1);
+    if (r() < 0.3) addBlock('pane', cx, y + 0.75, -1.1);
+    if (r() < 0.25) addBlock('paneSide', cx - 1.1, y + 0.75, 0);
+    if (r() < 0.25) addBlock('paneSide', cx + 1.1, y + 0.75, 0);
+    const sh = stone ? 0.3 : 0.26;
+    y += 1.6; addBlock(stone ? 'slabS' : 'slab', cx, y + sh / 2, 0); y += sh; tops.push(y);
+  }
+  const c = crown ?? (r() < 0.35 ? 'gold' : r() < 0.75 ? 'crates' : 'tnt');
+  if (c === 'gold') { addBlock('crate', cx, y + 0.35, 0, 0); addBlock('gold', cx, y + 0.87, 0, 0.3); }
+  else if (c === 'tnt') addBlock('tnt', cx, y + 0.41, 0);
+  else { for (const [dx, dz] of [[-0.37, -0.37], [0.37, -0.37], [-0.37, 0.37], [0.37, 0.37]]) addBlock('crate', cx + dx, y + 0.35, dz, (r() - 0.5) * 0.05); addBlock('crate', cx, y + 1.05, 0, 0.7); }
+  return tops;
+}
+
+function buildLevel(L) {
+  phys.reset(); blocks.length = 0; timers.length = 0; S.ball = null;
+  for (const k in meshes) used[k] = 0;
+  allFx.forEach(f => f.clear());
+  phys.addStatic({ t: 'box', x: 16.4, y: 2, z: 11.4 }, { x: 0, y: -1, z: 0.5 });
+  topMat.map = floorTex; built = L;
+  const r = rng(9137 + L * 7919);
+  const stoneP = Math.min(0.08 + (L - 1) * 0.1, 0.6);
+  const three = L === 1 || r() < 0.62;
+  const xs = three ? [-4.6, 0, 4.6] : [-2.4, 2.4];
+  const maxS = Math.min(2 + Math.ceil(L / 2), 5);
+  const hs = xs.map((_, i) => L === 1 ? [2, 3, 2][i] : 2 + Math.floor(r() * (maxS - 1)));
+  const crowns = L === 1 ? ['crates', 'gold', 'crates'] : [];
+  const tops = xs.map((x, i) => buildTower(x, hs[i], r, stoneP, crowns[i]));
+  let bridges = 0;
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const n = Math.min(tops[i].length, tops[i + 1].length);
+    for (let k = 0; k < n; k++) {
+      if (r() > 0.42) continue;
+      const y = Math.max(tops[i][k], tops[i + 1][k]) + 0.102, x = (xs[i] + xs[i + 1]) / 2;
+      addBlock('plank', x, y, -0.45); addBlock('plank', x, y, 0.45); bridges++;
+      if (r() < 0.5) { const t = r() < 0.5 ? 'tnt' : 'crate'; addBlock(t, x, y + 0.1 + (t === 'tnt' ? 0.41 : 0.35), 0); }
+    }
+  }
+  let wall = false;
+  if (L >= 2 && r() < 0.55) {
+    wall = true; const rows = 1 + Math.floor(r() * Math.min(3, L));
+    for (let row = 0; row < rows; row++) {
+      const off = row % 2 ? 0.41 : 0;
+      for (let x = -6.1 + off; x <= 6.1; x += 0.82) addBlock('brick', x, 0.2 + row * 0.401, 4.3);
+    }
+  }
+  const bait = L === 1 ? 1 : Math.floor(r() * 2.4);
+  for (let i = 0; i < bait && xs.length > 1; i++) {
+    const j = i % (xs.length - 1);
+    addBlock('tnt', (xs[j] + xs[j + 1]) / 2 + rnd(-0.2, 0.2), 0.41, 2.6 + (i > 1 ? 0.8 : 0));
+  }
+  for (const k in meshes) { meshes[k].count = used[k]; meshes[k].instanceColor.needsUpdate = true; }
+  syncBlocks(true);
+  S.name = wall ? (L % 2 ? 'Kamenná pevnost' : 'Za hradbou') : bridges >= 2 ? 'Most nad propastí' : NAMES[(L - 1) % NAMES.length];
+}
+
+function syncBlocks(all) {
+  for (const b of blocks) {
+    if (!b.alive) continue;
+    if (!all && phys.sleeping(b.body) && !b.armed) continue;
+    const p = phys.pos(b.body), q = phys.rot(b.body);
+    _p.set(p.x, p.y, p.z); _q.set(q.x, q.y, q.z, q.w); _m.compose(_p, _q, b.scale || _s.set(1, 1, 1));
+    b.mesh.setMatrixAt(b.idx, _m);
+  }
+  for (const k in meshes) meshes[k].instanceMatrix.needsUpdate = true;
+}
+function kill(b) { if (!b.alive) return; b.alive = false; phys.remove(b.body); b.mesh.setMatrixAt(b.idx, ZERO_M); b.mesh.instanceMatrix.needsUpdate = true; }
+
+// ---------- skóre a vyskakovací čísla ----------
+const pops = [];
+let lastSmallPop = 0;
+function popup(text, pos, cls) {
+  const n = performance.now();
+  if (cls === 's') { if (n - lastSmallPop < 90) return; lastSmallPop = n; }
+  else { const near = pops.find(o => o.text === text && o.age < 0.35 && o.p.distanceTo(pos) < 3); if (near) { near.n++; near.el.textContent = `${text} ×${near.n}`; near.age = 0.05; return; } }
+  if (pops.length > 28) { pops.shift().el.remove(); }
+  const el = document.createElement('div'); el.className = 'pop ' + cls; el.textContent = text; $('pops').appendChild(el);
+  pops.push({ el, text, n: 1, p: V3(pos.x, pos.y, pos.z), age: 0, life: cls === 's' ? 0.8 : 1.25 });
+}
+function updatePops(dt) {
+  for (let k = pops.length - 1; k >= 0; k--) {
+    const o = pops[k]; o.age += dt; const t = o.age / o.life;
+    if (t >= 1) { o.el.remove(); pops.splice(k, 1); continue; }
+    _v.copy(o.p); _v.y += 0.4 + t * 1.6; _v.project(camera);
+    if (_v.z > 1) { o.el.style.opacity = 0; continue; }
+    const x = (_v.x * 0.5 + 0.5) * innerWidth, y = (-_v.y * 0.5 + 0.5) * innerHeight;
+    const s = t < 0.12 ? 0.5 + (t / 0.12) * 0.75 : 1.25 - Math.min(1, (t - 0.12) / 0.2) * 0.25;
+    o.el.style.transform = `translate(${x}px,${y}px) translate(-50%,-50%) scale(${s})`;
+    o.el.style.opacity = t > 0.7 ? (1 - t) / 0.3 : 1;
+  }
+}
+function bump(id) { const e = $(id); e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); }
+let evtTimer = 0;
+function evt(text) { const e = $('evt'); e.textContent = text; e.style.opacity = 1; evtTimer = 1.2; bump('evt'); }
+function showTally() { $('chips').textContent = fmt(S.chips); $('mult').textContent = fmtMult(S.mult); }
+function addChips(n, p, label) { if (!S.scoring) return; S.chips += n; showTally(); bump('chipsBox'); if (label) popup(label, p, 's'); }
+function addMult(n, p, label, cls = 'm') { if (!S.scoring) return; S.mult += n; showTally(); bump('multBox'); popup(label, p, cls); evt(label); }
+function mulMult(f, p, label) { if (!S.scoring) return; S.mult *= f; showTally(); bump('multBox'); popup(label, p, 'g'); evt(label); }
+
+// ---------- události světa ----------
+function slowmo(min, hold, rel) { if (min < timeScale) { slowMin = min; timeScale = min; slowHold = hold; slowRel = rel; } }
+function impactFrame(P) {
+  _v.copy(P).project(camera);
+  const g = $('glow'); g.style.setProperty('--gx', ((_v.x * 0.5 + 0.5) * 100) + '%'); g.style.setProperty('--gy', ((-_v.y * 0.5 + 0.5) * 100) + '%');
+  glowA = Math.max(glowA, REDUCED ? 0.2 : 0.42);
+  if (!REDUCED && clock - S.lastIF > 0.6) { S.lastIF = clock; ifFrames = 2; }
+}
+function shatter(b) {
+  if (!b.alive) return;
+  const p = V3().copy(phys.pos(b.body)), v = V3().copy(phys.vel(b.body));
+  kill(b); fxShatter(p, v); Snd.glass(); trauma = Math.min(1, trauma + 0.06);
+  addChips(b.value, p, null); addMult(b.multAdd ?? 0.5, p, b.label ?? 'Sklo +0,5 ×', 's');
+}
+function arm(b, d) { if (!b.alive || b.armed) return; b.armed = true; b.fuse = d; }
+function explode(b) {
+  if (!b.alive) return;
+  const P = V3().copy(phys.pos(b.body));
+  kill(b); fxExplosion(P); Snd.boom();
+  for (let i = 0; i < 26; i++) dustPuff(P, S.kind === 'place' ? 2 : 2.6, 1.1);
+  trauma = Math.min(1, trauma + 0.55);
+  if (clock - S.lastSlow > 1.4) { S.lastSlow = clock; slowmo(0.16, 0.26, 0.8); }
+  impactFrame(P);
+  addChips(40, P, null); addMult(1, P, 'TNT +1 ×');
+  S.chain++; if (S.chain >= 2) evt(`Řetěz ×${S.chain}`);
+  const R = b.charge ? 4.8 : 3.7, P0 = b.charge ? 17 : 14;   // položená nálož je demoliční, silnější než sud
+  const push = (body, mass, p) => {
+    const dx = p.x - P.x, dy = p.y - P.y, dz = p.z - P.z, d = Math.hypot(dx, dy, dz);
+    if (d > R) return -1;
+    const k = 1 - d / R, dv = P0 * Math.pow(k, 1.15), inv = 1 / Math.max(d, 0.3);
+    _v.set(dx * inv, dy * inv + 0.55, dz * inv).normalize().multiplyScalar(dv * mass);
+    phys.impulse(body, { x: _v.x, y: _v.y, z: _v.z });
+    phys.setAngVel(body, { x: rnd(-10, 10) * k, y: rnd(-10, 10) * k, z: rnd(-10, 10) * k });
+    return d;
+  };
+  for (const o of blocks) {
+    if (!o.alive) continue;
+    const p = phys.pos(o.body), d = Math.hypot(p.x - P.x, p.y - P.y, p.z - P.z);
+    if (d > R) continue;
+    if (o.mat === 'tnt') { arm(o, 0.12 + d * 0.045); continue; }
+    if (o.mat === 'glass') { later(d * 0.02, () => shatter(o)); continue; }
+    push(o.body, o.mass, p);
+  }
+  if (S.ball) push(S.ball.body, S.ball.mass, phys.pos(S.ball.body));
+}
+function impact(b, dv) {
+  if (b.mat === 'glass' && dv > 3.0) return shatter(b);
+  if (b.mat === 'tnt' && dv > 4.2) return arm(b, rnd(0.05, 0.1));
+  const p = phys.pos(b.body);
+  if (S.kind !== 'place' && dv > 3.4 && b.mass > 0.08) fxDust(p, Math.min(1, dv / 12));
+  if (dv > 3) dustPuff(p, (S.kind === 'place' ? 0.9 : 1.4) * Math.min(1.6, 0.6 + dv / 10));
+  Snd.thud(dv * Math.sqrt(b.mass) / 12);
+}
+function postStep() {
+  for (const b of blocks) {
+    if (!b.alive) continue;
+    if (phys.sleeping(b.body)) { b.pv.set(0, 0, 0); continue; }
+    const v = phys.vel(b.body), dv = Math.hypot(v.x - b.pv.x, v.y - b.pv.y, v.z - b.pv.z);
+    b.pv.set(v.x, v.y, v.z);
+    if (dv > 2.2) impact(b, dv);
+  }
+  const ball = S.ball;
+  if (ball) {
+    const v = phys.vel(ball.body), dv = Math.hypot(v.x - ball.pv.x, v.y - ball.pv.y, v.z - ball.pv.z);
+    ball.pv.set(v.x, v.y, v.z);
+    if (dv > 5) {
+      Snd.thud(1); trauma = Math.min(1, trauma + Math.min(0.35, dv / 70));
+      if (!S.firstHit) { S.firstHit = true; slowmo(0.3, 0.1, 0.45); phys.damping(ball.body, 0.25, 0.9); const bp = phys.pos(ball.body); if (S.kind === 'place') for (let i = 0; i < 6; i++) dustPuff(bp, 1.2, 0.5); else fxDust(bp, 1); }
+    }
+  }
+}
+function checkBlocks() {
+  for (const b of blocks) {
+    if (!b.alive) continue;
+    const p = phys.pos(b.body);
+    if (p.y < -45) { kill(b); continue; }
+    if (!b.toppled) {
+      const q = phys.rot(b.body); _q.set(q.x, q.y, q.z, q.w);
+      const ang = 2 * Math.acos(Math.min(1, Math.abs(_q.dot(b.startQ))));
+      const d = Math.hypot(p.x - b.start.x, p.y - b.start.y, p.z - b.start.z);
+      if (d > 0.6 || ang > 0.6) { b.toppled = true; const v = b.value * (b.target ? 2 : 1); addChips(v, p, '+' + v); }
+    }
+    if (!b.fell && p.y < -1.5) {
+      b.fell = true;
+      if (b.mat === 'gold') mulMult(1.5, p, 'Zlato ×1,5');
+      else { const v = b.value * (b.target ? 2 : 1); addChips(v, p, 'propast +' + v); }
+    }
+  }
+}
+
+// ---------- míření a výstřel ----------
+const ndc = new THREE.Vector2(0, 0.05);
+const ray = new THREE.Raycaster();
+const backPlane = new THREE.Plane(V3(0, 0, 1), 5.5);
+const aim = { p: V3(0, 2.5, 0), n: V3(0, 0, 1), v: V3(), forced: null, hit: false };
+let pullT = 0, pull = 0, snapT = 9;
+const _n = V3(), _im = new THREE.Matrix4();
+function solveLaunch(to, mode, out) {
+  const dx = to.x - SLING.x, dz = to.z - SLING.z, d = Math.max(0.5, Math.hypot(dx, dz)), h = to.y - SLING.y;
+  let v = SPEED, th;
+  if (mode === 'flat') {
+    const v2 = v * v, disc = v2 * v2 - G * (G * d * d + 2 * h * v2);
+    th = disc < 0 ? Math.PI / 4 : Math.atan((v2 - Math.sqrt(disc)) / (G * d));
+  } else {
+    th = LOB; const c = Math.cos(th), den = 2 * c * c * (d * Math.tan(th) - h);
+    v = den > 0 ? Math.min(Math.sqrt(G * d * d / den), SPEED * 1.1) : SPEED;
+  }
+  return out.set(dx / d * v * Math.cos(th), v * Math.sin(th), dz / d * v * Math.cos(th));
+}
+function updateAim() {
+  if (aim.forced) { aim.p.copy(aim.forced); aim.n.set(0, 0, 1); aim.hit = true; }
+  else {
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(aimTargets, false).find(h => { for (let o = h.object; o; o = o.parent) if (!o.visible) return false; return true; });
+    aim.hit = !!hit;
+    if (hit) {
+      aim.p.copy(hit.point);
+      _n.copy(hit.face.normal);
+      if (hit.instanceId !== undefined) { hit.object.getMatrixAt(hit.instanceId, _im); _n.transformDirection(_im); } else _n.transformDirection(hit.object.matrixWorld);
+      aim.n.copy(_n);
+    } else if (ray.ray.intersectPlane(backPlane, _v)) { aim.p.copy(_v); aim.p.y = Math.min(aim.p.y, 24); aim.n.set(0, 0, 1); }
+  }
+  solveLaunch(aim.p, S.mode, aim.v);
+  reticle.position.copy(aim.p).addScaledVector(aim.n, 0.03);
+  reticle.lookAt(_v.copy(aim.p).add(aim.n));
+  const pulse = 1 + Math.sin(clock * 6) * 0.08 + pull * 0.25;
+  reticle.scale.setScalar(pulse);
+  // tečky balistické dráhy až k cíli
+  const hv = Math.hypot(aim.v.x, aim.v.z), dist = Math.hypot(aim.p.x - SLING.x, aim.p.z - SLING.z);
+  const tEnd = Math.min(dist / Math.max(hv, 0.1), 4);
+  for (let i = 0; i < DOTS; i++) {
+    const t = tEnd * (i + 1) / DOTS;
+    _p.set(SLING.x + aim.v.x * t, SLING.y + aim.v.y * t - 0.5 * G * t * t, SLING.z + aim.v.z * t);
+    const s = (0.075 - i * 0.0009) * (1 + pull * 0.6) * (i % 2 ? 0.75 : 1);
+    _m.compose(_p, _q.identity(), _s.setScalar(_p.y < -6 ? 0 : s)); dots.setMatrixAt(i, _m);
+  }
+  dots.instanceMatrix.needsUpdate = true;
+}
+function showAimGizmos(on) { dots.visible = on; reticle.visible = on; }
+function loadBall() { ballMesh.visible = true; ballMesh.position.copy(SLING); ballMesh.scale.setScalar(0.01); ballMesh.userData.pop = 0; }
+function fire() {
+  if (S.state !== 'pull') return;
+  solveLaunch(aim.p, S.mode, aim.v);
+  const body = phys.add({ t: 'ball', r: BALL_R }, SLING, { x: 0, y: 0, z: 0, w: 1 }, { density: 8, ccd: true, friction: 0.5, restitution: 0.12, linDamp: 0.0, angDamp: 0.05 });
+  phys.setVel(body, { x: aim.v.x, y: aim.v.y, z: aim.v.z });
+  S.ball = { body, pv: aim.v.clone(), mass: 8 * volume({ t: 'ball', r: BALL_R }) };
+  S.shots--; renderShots();
+  S.state = 'flight'; S.scoring = true; S.chips = 0; S.mult = 1; S.since = 0; S.calm = 0; S.firstHit = false; S.chain = 0;
+  showTally(); $('cm').classList.remove('idle'); $('shot').textContent = '';
+  trailPts.length = 0; showAimGizmos(false);
+  Snd.whoosh(); snapT = 0; pull = 0;
+  cam.mode = 'chase'; cam.side = aim.p.x >= 0 ? 1 : -1;
+}
+
+// ---------- kamera ----------
+const cam = { pos: V3(0, 9, 34), look: V3(0, 2.5, 0), mode: 'title', orbit: 0.5, side: 1 };
+const AIM_POS = V3(1.9, 4.9, 29.2), AIM_LOOK = V3(-0.3, 2.7, 0);
+const _tp = V3(), _tl = V3();
+function updateCamera(rdt) {
+  let k = 3;
+  if (cam.mode === 'title') {
+    cam.orbit += rdt * 0.07;
+    _tp.set(Math.sin(cam.orbit) * 27, 9 + Math.sin(cam.orbit * 0.7) * 2, Math.cos(cam.orbit) * 27 + 1); _tl.set(0, 2.6, 0); k = 1.2;
+  } else if (cam.mode === 'aim') {
+    _tp.set(AIM_POS.x + ndc.x * 1.4, AIM_POS.y + ndc.y * 0.7, AIM_POS.z - pull * 0.8);
+    _tl.set(AIM_LOOK.x + ndc.x * 3, AIM_LOOK.y + ndc.y * 1.6, AIM_LOOK.z); k = 4;
+  } else if (cam.mode === 'chase' && S.ball) {
+    const bp = phys.pos(S.ball.body), bv = phys.vel(S.ball.body);
+    const h = Math.hypot(bv.x, bv.z) || 1;
+    _tp.set(bp.x - bv.x / h * 6.5 + cam.side * 1.2, bp.y + 2.3, bp.z - bv.z / h * 6.5);
+    _tl.set(bp.x + bv.x * 0.25, bp.y + bv.y * 0.1, bp.z + bv.z * 0.25); k = 5;
+    if (bp.z < 9.5 || S.firstHit || bp.y < -4) cam.mode = 'watch';
+  } else {
+    cam.orbit += rdt * 0.05 * cam.side;
+    const a = cam.side * 0.72 + Math.sin(clock * 0.1) * 0.05;
+    _tp.set(Math.sin(a) * 21.5, 8.6, Math.cos(a) * 21.5 + 1.5); _tl.set(aim.p.x * 0.35, 2.8, 0); k = 2.2;
+  }
+  cam.pos.lerp(_tp, 1 - Math.exp(-k * rdt));
+  cam.look.lerp(_tl, 1 - Math.exp(-k * 1.3 * rdt));
+  camera.position.copy(cam.pos);
+  const sh = trauma * trauma * (REDUCED ? 0.15 : 0.7);
+  if (sh > 0.0005) camera.position.add(_v.set(Math.sin(clock * 37.1), Math.sin(clock * 29.3 + 1), Math.sin(clock * 41.7 + 2)).multiplyScalar(sh));
+  camera.lookAt(cam.look);
+  if (sh > 0.0005) camera.rotateZ(Math.sin(clock * 23.7) * sh * 0.05);
+}
+
+// ---------- prak ----------
+function updateSling(rdt) {
+  let pouch = _p.copy(SLING);
+  if (S.state === 'pull') {
+    pullT += rdt; pull = easeOut(Math.min(pullT / 0.22, 1));
+    _v.copy(aim.v).normalize(); pouch.addScaledVector(_v, -1.1 * pull); pouch.y -= 0.15 * pull;
+  } else if (snapT < 0.7) {
+    snapT += rdt; _v.copy(aim.v).normalize();
+    pouch.addScaledVector(_v, Math.sin(snapT * 42) * Math.exp(-snapT * 8) * 0.45);
+  }
+  for (let i = 0; i < 2; i++) setRod(bands[i], TIPS[i], pouch);
+  if (S.state === 'aim' || S.state === 'pull') {
+    ballMesh.position.copy(pouch);
+    const u = ballMesh.userData; u.pop = Math.min(1, (u.pop ?? 1) + rdt * 4);
+    ballMesh.scale.setScalar(u.pop < 1 ? easeOut(u.pop) * (1 + Math.sin(u.pop * Math.PI) * 0.25) : 1);
+  }
+}
+
+// ---------- průběh: rána → zúčtování → další ----------
+let tally = null;
+function endShot() {
+  S.scoring = false; S.state = 'tally';
+  const shot = Math.round(S.chips * S.mult);
+  tally = { t: 0, shot, shown: -1, from: S.total, to: S.total + shot, added: false, ticks: 0, dur: clamp(0.45 + Math.log10(shot + 1) * 0.28, 0.5, 1.6) };
+  $('chipsBox').classList.add('hot'); $('multBox').classList.add('hot');
+}
+function updateTally(rdt) {
+  const T = tally; T.t += rdt;
+  const t1 = 0.35, t2 = t1 + T.dur, t3 = t2 + 0.45, t4 = t3 + 0.75;
+  if (T.t > t1 && T.t <= t2) {
+    const k = easeOut((T.t - t1) / T.dur), val = Math.round(T.shot * k);
+    if (val !== T.shown) { T.shown = val; $('shot').textContent = '= ' + fmt(val); if (T.ticks++ % 2 === 0) Snd.tick(T.ticks / 2); }
+  } else if (T.t > t2 && !T.slam) {
+    T.slam = true; $('shot').textContent = T.shot ? '= ' + fmt(T.shot) : 'Vedle'; bump('shot');
+    if (T.shot) { Snd.slam(); trauma = Math.min(1, trauma + 0.18); }
+    $('chipsBox').classList.remove('hot'); $('multBox').classList.remove('hot');
+  }
+  if (T.t > t3) {
+    const k = easeOut(Math.min(1, (T.t - t3) / 0.6));
+    S.total = Math.round(T.from + (T.to - T.from) * k); renderScore();
+  }
+  if (T.t > t4) {
+    S.total = T.to; renderScore(); tally = null;
+    if (S.ball) { phys.remove(S.ball.body); S.ball = null; }
+    if (S.kind === 'place') { if (S.shots <= 0 && !blocks.some(b => b.charge && b.alive)) placeEnd(); else nextShot(); }
+    else if (S.total >= S.target) levelClear();
+    else if (S.shots <= 0) levelFail();
+    else nextShot();
+  }
+}
+function nextShot() {
+  S.state = 'aim'; cam.mode = 'aim'; pullT = 0; pull = 0;
+  for (const k in meshes) meshes[k].computeBoundingSphere();
+  trail.count = 0; showAimGizmos(true);
+  if (S.shots > 0) loadBall(); else { ballMesh.visible = false; evt('Došly koule. Odpal nálože klávesou D'); }
+  S.chips = 0; S.mult = 1; showTally(); $('cm').classList.add('idle');
+}
+function renderScore() {
+  $('total').textContent = fmt(S.total);
+  if (S.kind === 'place') {
+    const pct = demolished();
+    $('scoreSub').textContent = ` zbořeno ${pct} %`; $('barFill').style.width = pct + '%';
+    $('runLine').textContent = (S.place.target ? `Tvůj dům ${demolished(b => b.target)} % · ` : '') + plural(S.place.count, 'budova', 'budovy', 'budov');
+  } else {
+    $('scoreSub').textContent = '/ ' + fmt(S.target); $('barFill').style.width = Math.min(100, S.total / S.target * 100) + '%';
+    $('runLine').textContent = `Běh ${fmt(S.run)} · rekord ${fmt(S.best)}`;
+  }
+}
+function renderShots() { $('shots').innerHTML = Array.from({ length: S.maxShots }, (_, i) => `<i class="${i < S.maxShots - S.shots ? 'used' : ''}"></i>`).join(''); }
+function renderMode() { $('mode').textContent = S.mode === 'flat' ? 'přímá' : 'oblouk'; }
+function startLevel(L, rebuild = true) {
+  S.level = L; store.set('level', L);
+  if (S.ball) { phys.remove(S.ball.body); S.ball = null; }
+  if (rebuild || built !== L) buildLevel(L);
+  S.kind = 'campaign'; S.maxShots = SHOTS; S.charges = 0; setPlaceUI(false);
+  setLook('campaign'); clearDust();
+  tally = null; S.scoring = false; timeScale = 1; slowHold = 0; trauma = 0;
+  $('chipsBox').classList.remove('hot'); $('multBox').classList.remove('hot');
+  S.total = 0; S.shots = SHOTS; S.target = targetFor(L);
+  $('lvl').innerHTML = `Úroveň <b>${L}</b> · ${S.name}`;
+  renderScore(); renderShots(); renderMode(); $('shot').textContent = ''; $('evt').textContent = '';
+  $('ov').hidden = true; $('hud').hidden = false;
+  nextShot(); canvas.focus();
+}
+function showEnd(head, big, lines, btn, fine, onBtn, opts = {}) {
+  $('endAlt').hidden = !opts.alt; if (opts.alt) $('endAlt').textContent = opts.alt; altAction = opts.onAlt || null;
+  $('endHead').textContent = head; $('endBig').textContent = big;
+  $('endLines').innerHTML = lines.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
+  $('endBtn').textContent = btn; $('endFine').textContent = fine; endAction = onBtn;
+  $('cardTitle').hidden = true; $('cardEnd').hidden = false; $('ov').hidden = false; $('hud').hidden = true;
+  setTimeout(() => $('endBtn').focus(), 50);
+}
+let endAction = null, altAction = null;
+function levelClear() {
+  S.state = 'end'; showAimGizmos(false); ballMesh.visible = false;
+  const per = Math.round(S.target * 0.2 / 10) * 10, bonus = S.shots * per;
+  const levelScore = S.total + bonus; S.run += levelScore;
+  if (S.run > S.best) { S.best = S.run; store.set('best', S.best); }
+  renderScore(); Snd.fanfare();
+  showEnd('Zbořeno', fmt(levelScore), [['Skóre úrovně', fmt(S.total)], ['Cíl', fmt(S.target)], ['Koule navíc', S.shots ? `${S.shots} × ${fmt(per)}` : '0'], ['Běh celkem', fmt(S.run)]],
+    'Další úroveň', 'Enter pokračuje.', () => startLevel(S.level + 1));
+}
+function levelFail() {
+  S.state = 'end'; showAimGizmos(false); ballMesh.visible = false; Snd.sad();
+  showEnd('Nestačilo', fmt(S.total), [['Cíl', fmt(S.target)], ['Chybělo', fmt(S.target - S.total)]],
+    'Zkusit znovu', 'Enter nebo R postaví úroveň znovu. Míř na TNT a sklo, ty zvedají násobič.', () => startLevel(S.level));
+}
+$('endBtn').addEventListener('click', () => { Snd.init(); endAction && endAction(); });
+$('endAlt').addEventListener('click', () => { Snd.init(); altAction && altAction(); });
+
+// ---------- moje místo: OpenStreetMap → bloky ----------
+// Soubor map.osm z exportu openstreetmap.org se čte jen v prohlížeči; souřadnice ani data se neukládají.
+const PLACE_SHOTS = 5, PLACE_CHARGES = 5, BODY_BUDGET = 1500;
+const WIN = { x0: -7.8, x1: 7.8, z0: -4.8, z1: 4.6 };   // výřez plošiny, kam se místo vejde
+const ZC = (WIN.z0 + WIN.z1) / 2;
+let place = null, placeCenter = null, built = null, groundTex = null;
+const tagEl = document.createElement('div'); tagEl.className = 'tag3d'; tagEl.textContent = 'Tvůj dům'; tagEl.hidden = true; $('pops').appendChild(tagEl);
+const userErr = msg => Object.assign(new Error(msg), { user: true });
+const plural = (n, one, few, many) => `${n} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
+
+function parseCoords(t) {
+  const num = '(-?\\d{1,3}(?:\\.\\d+)?)';
+  const pats = [
+    new RegExp(`!3d${num}!4d${num}`),                    // připíchnuté místo v Google Maps
+    new RegExp(`@${num},${num}`),                         // Google Maps / Google Earth: @lat,lon
+    new RegExp(`[?&](?:q|ll|query|center)=${num},\\s*${num}`),
+    new RegExp(`map=\\d+(?:\\.\\d+)?/${num}/${num}`),     // openstreetmap.org/#map=19/lat/lon
+  ];
+  for (const p of pats) { const m = t.match(p); if (m) return check(+m[1], +m[2]); }
+  const mx = t.match(new RegExp(`[?&]x=${num}`)), my = t.match(new RegExp(`[?&]y=${num}`));   // mapy.cz: x=lon, y=lat
+  if (mx && my) return check(+my[1], +mx[1]);
+  const m = t.match(new RegExp(`${num}\\s*[,;\\s]\\s*${num}`));
+  return m ? check(+m[1], +m[2]) : null;
+  function check(la, lo) { return Math.abs(la) <= 90 && Math.abs(lo) <= 180 && (la !== 0 || lo !== 0) ? [la, lo] : null; }
+}
+function areaKind(t) {
+  if (t.natural === 'water' || t.waterway === 'riverbank' || ['reservoir', 'basin'].includes(t.landuse)) return 'water';
+  if (['grass', 'meadow', 'forest', 'park', 'village_green', 'recreation_ground', 'flowerbed', 'allotments', 'orchard', 'cemetery', 'vineyard'].includes(t.landuse)
+    || ['park', 'garden', 'pitch', 'playground', 'golf_course'].includes(t.leisure)
+    || ['wood', 'scrub', 'shrubbery', 'grassland', 'heath'].includes(t.natural)) return 'green';
+  if (t.amenity === 'parking' || t.place === 'square' || (t.highway && t.area === 'yes')) return 'paved';
+  return null;
+}
+function joinRings(parts) {
+  const rings = [], pool = parts.map(p => p.slice());
+  while (pool.length) {
+    let ring = pool.shift(), guard = 0;
+    while (ring[0] !== ring[ring.length - 1] && guard++ < 1000) {
+      const end = ring[ring.length - 1], i = pool.findIndex(p => p[0] === end || p[p.length - 1] === end);
+      if (i < 0) break;
+      const p = pool.splice(i, 1)[0];
+      ring = ring.concat(p[0] === end ? p.slice(1) : p.slice(0, -1).reverse());
+    }
+    if (ring.length > 3 && ring[0] === ring[ring.length - 1]) rings.push(ring);
+  }
+  return rings;
+}
+function parseOSM(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const root = doc.documentElement;
+  if (!root || root.nodeName !== 'osm' || doc.getElementsByTagName('parsererror').length)
+    throw userErr('Tohle není soubor z OpenStreetMap. Stáhni ho na openstreetmap.org tlačítkem Export (soubor map.osm).');
+  const tagsOf = el => { const t = {}; for (const c of el.children) if (c.nodeName === 'tag') t[c.getAttribute('k')] = c.getAttribute('v'); return t; };
+  const nodes = new Map(), trees = [], treeRows = [];
+  let la0 = 90, la1 = -90, lo0 = 180, lo1 = -180;
+  for (const n of doc.getElementsByTagName('node')) {
+    const la = +n.getAttribute('lat'), lo = +n.getAttribute('lon');
+    nodes.set(n.getAttribute('id'), [la, lo]);
+    la0 = Math.min(la0, la); la1 = Math.max(la1, la); lo0 = Math.min(lo0, lo); lo1 = Math.max(lo1, lo);
+    if (n.firstElementChild && tagsOf(n).natural === 'tree') trees.push([la, lo]);
+  }
+  const ways = new Map();
+  for (const w of doc.getElementsByTagName('way')) {
+    const refs = []; for (const c of w.children) if (c.nodeName === 'nd') refs.push(c.getAttribute('ref'));
+    ways.set(w.getAttribute('id'), { refs, tags: tagsOf(w) });
+  }
+  const ll = refs => refs.map(r => nodes.get(r)).filter(Boolean);
+  const buildings = [], areas = [], roads = [], inRel = new Set();
+  for (const r of doc.getElementsByTagName('relation')) {
+    const tags = tagsOf(r); if (tags.type !== 'multipolygon') continue;
+    const outer = [], inner = [];
+    for (const m of r.children) {
+      if (m.nodeName !== 'member' || m.getAttribute('type') !== 'way') continue;
+      const w = ways.get(m.getAttribute('ref')); if (!w) continue;
+      (m.getAttribute('role') === 'inner' ? inner : outer).push(w.refs);
+      if (tags.building) inRel.add(m.getAttribute('ref'));
+    }
+    const rings = [...joinRings(outer), ...joinRings(inner)].map(ll).filter(x => x.length > 3);
+    if (!rings.length) continue;
+    if (tags.building && tags.building !== 'no') buildings.push({ rings, tags });
+    else { const k = areaKind(tags); if (k) areas.push({ rings, kind: k, tags }); }
+  }
+  for (const [id, w] of ways) {
+    const t = w.tags, closed = w.refs.length > 3 && w.refs[0] === w.refs[w.refs.length - 1];
+    if (t.building && t.building !== 'no') { if (closed && !inRel.has(id)) buildings.push({ rings: [ll(w.refs)], tags: t }); continue; }
+    if (t.highway && !(closed && t.area === 'yes')) { roads.push({ pts: ll(w.refs), kind: t.highway }); continue; }
+    if (t.natural === 'tree_row') { treeRows.push(ll(w.refs)); continue; }
+    const k = closed && areaKind(t); if (k) areas.push({ rings: [ll(w.refs)], kind: k, tags: t });
+  }
+  const b = doc.getElementsByTagName('bounds')[0];
+  const bounds = b ? { minlat: +b.getAttribute('minlat'), maxlat: +b.getAttribute('maxlat'), minlon: +b.getAttribute('minlon'), maxlon: +b.getAttribute('maxlon') }
+    : { minlat: la0, maxlat: la1, minlon: lo0, maxlon: lo1 };
+  if (!buildings.length) throw userErr('V souboru nejsou žádné budovy. Vyexportuj oblast, kde nějaké domy jsou.');
+  return { buildings, areas, roads, bounds, trees, treeRows };
+}
+function inPoly(x, z, rings) {
+  let c = false;
+  for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const xi = r[i][0], zi = r[i][1], xj = r[j][0], zj = r[j][1];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c;
+  }
+  return c;
+}
+const HOUSEY = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'farm', 'cabin', 'villa']);
+const SMALL = new Set(['garage', 'garages', 'shed', 'carport', 'hut', 'kiosk', 'service', 'toilets', 'greenhouse']);
+function floorsOf(t) {
+  const h = parseFloat(String(t.height || '').replace(',', '.'));
+  if (h > 0) return clamp(Math.round(h / 3.2), 1, 9);
+  const l = parseFloat(t['building:levels']);
+  if (l > 0) return clamp(Math.round(l), 1, 9);
+  const ty = t.building;
+  if (SMALL.has(ty)) return 1;
+  if (HOUSEY.has(ty) || ty === 'yes') return 2;
+  if (ty === 'apartments' || ty === 'dormitory') return 5;
+  if (['residential', 'hotel', 'office', 'civic', 'public', 'hospital', 'school', 'university', 'government'].includes(ty)) return 4;
+  return 2;
+}
+function roofOf(t, floors) {
+  const rs = t['roof:shape'];
+  if (rs) return rs === 'flat' ? 'flat' : ['hipped', 'pyramidal', 'half-hipped', 'mansard', 'dome', 'quadruple_saltbox'].includes(rs) ? 'hip' : 'gable';
+  return HOUSEY.has(t.building) || (t.building === 'yes' && floors <= 2) ? 'gable' : 'flat';
+}
+const FACADES = { house: [0xe9dcc6, 0xdcc7a6, 0xd3dcc8, 0xe7d3c3, 0xcfd5dd], flat: [0xd8cdbd, 0xc8bba8, 0xbfc7cf, 0xd5c8b8, 0xe0d6c6], work: [0xb7c0ca, 0xa9b3bd, 0xc2c6c9], small: [0x9a948e, 0x8f8a84] };
+function facadeOf(t, r) {
+  const own = t['building:colour'] && colorOrNull(t['building:colour']); if (own) return own;
+  const ty = t.building;
+  const pal = HOUSEY.has(ty) || ty === 'yes' ? FACADES.house : SMALL.has(ty) ? FACADES.small : ['industrial', 'warehouse', 'commercial', 'retail', 'office'].includes(ty) ? FACADES.work : FACADES.flat;
+  return new THREE.Color(pal[Math.floor(r() * pal.length)]);
+}
+function roofColOf(t, kind, r) {
+  const own = t['roof:colour'] && colorOrNull(t['roof:colour']); if (own) return own;
+  return new THREE.Color(kind === 'flat' ? 0x77736f : [0xb4573a, 0x9c4430, 0x7d4a3a][Math.floor(r() * 3)]);
+}
+function colorOrNull(s) { const probe = new Option().style; probe.color = s; return probe.color ? new THREE.Color().setStyle(probe.color) : null; }
+
+function runsOf(cells, nx) {
+  const sorted = [...cells].sort((a, b) => a - b), runs = [];
+  for (const k of sorted) {
+    const i = k % nx, j = (k / nx) | 0, last = runs[runs.length - 1];
+    if (last && last[0] === j && last[1] + last[2] === i) last[2]++; else runs.push([j, i, 1]);
+  }
+  return runs;
+}
+function estimate(blds) {
+  let n = 0;
+  for (const b of blds) if (b.cells.length >= 2) n += b.floors * (b.boundary.length + b.runs.length) + (b.roof === 'flat' ? 0 : b.runs.length * 2);
+  return n;
+}
+function erode(set, nx, nz, axis) {
+  const out = new Set(), has = (i, j) => i >= 0 && i < nx && j >= 0 && j < nz && set.has(j * nx + i);
+  for (const k of set) {
+    const i = k % nx, j = (k / nx) | 0;
+    const keepX = has(i - 1, j) && has(i + 1, j), keepZ = has(i, j - 1) && has(i, j + 1);
+    if (axis === 'x' ? keepX : axis === 'z' ? keepZ : keepX && keepZ) out.add(k);
+  }
+  return out;
+}
+
+const GRID = { x0: -11.6, x1: 11.6, z0: ZC - 7.8, z1: ZC + 7.8 };   // rastr zničitelných budov; budova patří sem, když má střed ve WIN
+function rasterize(blds, s, c) {
+  const nx = Math.floor((GRID.x1 - GRID.x0) / c), nz = Math.floor((GRID.z1 - GRID.z0) / c);
+  const own = new Int32Array(nx * nz).fill(-1);
+  const cx = i => GRID.x0 + (i + 0.5) * c, cz = j => GRID.z0 + (j + 0.5) * c;
+  blds.forEach((b, bi) => {
+    const [x0, x1, z0, z1] = b.box; b.cells = [];
+    const i0 = Math.max(0, Math.floor((x0 * s - GRID.x0) / c)), i1 = Math.min(nx - 1, Math.ceil((x1 * s - GRID.x0) / c));
+    const j0 = Math.max(0, Math.floor((z0 * s + ZC - GRID.z0) / c)), j1 = Math.min(nz - 1, Math.ceil((z1 * s + ZC - GRID.z0) / c));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * nx + i; if (own[k] !== -1) continue;
+      if (inPoly(cx(i) / s, (cz(j) - ZC) / s, b.rings)) { own[k] = bi; b.cells.push(k); }
+    }
+  });
+  const g = { nx, nz, own, c, cx, cz };
+  g.at = (i, j, bi) => i >= 0 && i < nx && j >= 0 && j < nz && own[j * nx + i] === bi;
+  for (const [bi, b] of blds.entries()) {
+    b.boundary = b.cells.filter(k => { const i = k % nx, j = (k / nx) | 0; return !(g.at(i - 1, j, bi) && g.at(i + 1, j, bi) && g.at(i, j - 1, bi) && g.at(i, j + 1, bi)); });
+    b.runs = runsOf(b.cells, nx);
+  }
+  return g;
+}
+// koridor od praku k výřezu: tady okolní domy ani stromy nestojí, jinak zakryjí výhled i dráhu koule
+const inCorridor = (x0, x1, z0, z1) => x1 > -9.5 && x0 < 9.5 && z1 > WIN.z1 - 0.5 && z0 < 36;
+function wallKind(b) {
+  const m = (b.tags['building:material'] || b.tags['building:facade:material'] || '').toLowerCase();
+  if (/brick/.test(m)) return 'pWallB';
+  if (/concrete|panel|metal|glass/.test(m)) return 'pWallC';
+  if (/plaster|stucco/.test(m)) return 'pWallP';
+  if (['industrial', 'warehouse', 'garage', 'garages', 'shed'].includes(b.tags.building)) return 'pWallB';
+  return b.floors >= 5 ? 'pWallC' : 'pWallP';
+}
+function roofTintOf(t, r) {
+  const own = t['roof:colour'] && colorOrNull(t['roof:colour']);
+  if (own) return own.lerp(new THREE.Color(1, 1, 1), 0.3);
+  return new THREE.Color(1, 1, 1).multiplyScalar(0.8 + r() * 0.26).offsetHSL((r() - 0.5) * 0.03, 0, 0);
+}
+
+function buildPlace(P) {
+  const { data } = P, bb = data.bounds;
+  let c0 = [(bb.minlat + bb.maxlat) / 2, (bb.minlon + bb.maxlon) / 2];
+  const ce = P.center;
+  if (ce && ce[0] >= bb.minlat && ce[0] <= bb.maxlat && ce[1] >= bb.minlon && ce[1] <= bb.maxlon) c0 = ce;
+  const kx = 111320 * Math.cos(c0[0] * Math.PI / 180), kz = 110540;
+  const proj = ([la, lo]) => [(lo - c0[1]) * kx, -(la - c0[0]) * kz];   // metry: x na východ, z na jih
+  const bw = Math.max(20, (bb.maxlon - bb.minlon) * kx), bd = Math.max(20, (bb.maxlat - bb.minlat) * kz);
+  const s = clamp(Math.min((WIN.x1 - WIN.x0) / bw, (WIN.z1 - WIN.z0) / bd), 0.2, 0.45);   // výřez ~80 × 47 m kolem středu
+  uInvS.value = 1 / s;
+  const g = 3 * s, bh = 0.84 * g, th = 0.16 * g;   // patro = jedna vrstva sloupů + strop
+  const r = rng(4242);
+  const ext = Math.max(Math.abs(bb.minlon - c0[1]) * kx, Math.abs(bb.maxlon - c0[1]) * kx, Math.abs(bb.minlat - c0[0]) * kz, Math.abs(bb.maxlat - c0[0]) * kz);
+  const A2 = clamp(ext * s, 40, 90);   // polovina strany okolí v herních jednotkách
+  const blds = [], ctx = [], all = [];
+  for (const b of data.buildings) {
+    if (b.tags.building === 'roof') continue;
+    const rings = b.rings.map(rr => rr.map(proj));
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const rr of rings) for (const [x, z] of rr) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    const floors = floorsOf(b.tags), rec = { tags: b.tags, rings, box: [x0, x1, z0, z1], floors, roof: roofOf(b.tags, floors) };
+    all.push(rec);
+    const mx = (x0 + x1) / 2 * s, mz = (z0 + z1) / 2 * s + ZC;
+    if (mx > WIN.x0 && mx < WIN.x1 && mz > WIN.z0 && mz < WIN.z1) blds.push(rec);
+    else if (Math.abs(mx) < A2 && Math.abs(mz - ZC) < A2 && ctx.length < 700 && !inCorridor(x0 * s, x1 * s, z0 * s + ZC, z1 * s + ZC)) ctx.push(rec);
+  }
+  if (!blds.length) throw userErr('V okolí středu nejsou žádné budovy. Vyexportuj oblast, kde nějaké domy jsou.');
+  // buňka roste, dokud se tělesa nevejdou do rozpočtu fyziky
+  let c = clamp(g * 0.42, 0.18, 0.6), grid;
+  for (let tries = 0; tries < 14; tries++) { grid = rasterize(blds, s, c); if (estimate(blds) <= BODY_BUDGET) break; c *= 1.15; }
+  const { nx, nz } = grid;
+  // tvůj dům = budova pod středem (nebo nejbližší do 4 buněk)
+  const ci = Math.floor((0 - GRID.x0) / c), cj = Math.floor((ZC - GRID.z0) / c);
+  let targetIdx = -1;
+  for (let rad = 0; rad <= 4 && targetIdx < 0; rad++)
+    for (let dj = -rad; dj <= rad && targetIdx < 0; dj++) for (let di = -rad; di <= rad; di++) {
+      const i = ci + di, j = cj + dj; if (i < 0 || j < 0 || i >= nx || j >= nz) continue;
+      const o = grid.own[j * nx + i]; if (o >= 0 && blds[o].cells.length >= 2) { targetIdx = o; break; }
+    }
+  // stavba
+  phys.reset(); blocks.length = 0; timers.length = 0; S.ball = null;
+  for (const k in meshes) used[k] = 0;
+  allFx.forEach(f => f.clear());
+  phys.addStatic({ t: 'box', x: 1200, y: 2, z: 1200 }, { x: 0, y: -1, z: ZC });
+  const slabCol = new THREE.Color(0xd8d3cb), W1 = new THREE.Color(1, 1, 1);
+  let count = 0, flag = null;
+  blds.forEach((b, bi) => {
+    if (b.cells.length < 2) return;
+    count++;
+    const isT = bi === targetIdx, wk = wallKind(b), col = facadeOf(b.tags, r);
+    const wallCol = () => (wk === 'pWallB' ? W1.clone() : wk === 'pWallC' ? col.clone().lerp(W1, 0.35) : col.clone()).multiplyScalar(0.93 + r() * 0.1);
+    const winCol = col.clone().lerp(W1, 0.55), roofT = roofTintOf(b.tags, r);
+    for (let f = 0; f < b.floors; f++) {
+      const y0 = f * g, y = y0 + bh / 2;
+      for (const k of b.boundary) {
+        const i = k % nx, j = (k / nx) | 0;
+        const alongX = grid.at(i - 1, j, bi) && grid.at(i + 1, j, bi) && !(grid.at(i, j - 1, bi) && grid.at(i, j + 1, bi));
+        const alongZ = grid.at(i, j - 1, bi) && grid.at(i, j + 1, bi) && !(grid.at(i - 1, j, bi) && grid.at(i + 1, j, bi));
+        const win = (alongX || alongZ) && (alongX ? i : j) % 3 === 1;
+        if (win) addBlock('pWin', grid.cx(i), y, grid.cz(j), 0, { size: V3(c, bh, c), color: winCol, target: isT, value: 5, multAdd: 0.1, label: 'Okno +0,1 ×' });
+        else addBlock(wk, grid.cx(i), y, grid.cz(j), 0, { size: V3(c, bh, c), color: wallCol(), target: isT });
+      }
+      const ys = y0 + bh + th / 2, top = f === b.floors - 1 && b.roof === 'flat';
+      for (const [j, i0, len] of b.runs) addBlock(top ? 'pFlat' : 'pSlab', grid.cx(i0) + (len - 1) * c / 2, ys, grid.cz(j), 0,
+        { size: V3(len * c, th, c), color: top ? W1.clone().multiplyScalar(0.85 + r() * 0.12) : slabCol, target: isT });
+    }
+    // šikmá střecha: každá vrstva = eroze půdorysu; okrajové buňky jsou klíny, vnitřní plné bloky (sklon ~32°)
+    let topY = b.floors * g, lastSet = new Set(b.cells);
+    if (b.roof !== 'flat') {
+      const is = b.cells.map(k => k % nx), js = b.cells.map(k => (k / nx) | 0);
+      const axis = b.roof === 'hip' ? 'both' : (Math.max(...is) - Math.min(...is) >= Math.max(...js) - Math.min(...js) ? 'z' : 'x');
+      const rh = c * 0.62;
+      let set = new Set(b.cells);
+      for (let layer = 0; layer < 7 && set.size; layer++) {
+        const next = erode(set, nx, nz, axis), y = topY + rh / 2;
+        const inS = (i, j) => i >= 0 && i < nx && j >= 0 && j < nz && set.has(j * nx + i);
+        for (const [j, i0, len] of runsOf(next, nx)) addBlock('pRoof', grid.cx(i0) + (len - 1) * c / 2, y, grid.cz(j), 0, { size: V3(len * c, rh, c), color: roofT, target: isT });
+        for (const k of set) {
+          if (next.has(k)) continue;
+          const i = k % nx, j = (k / nx) | 0;
+          let yaw = null;
+          if (axis !== 'x') { const n = inS(i, j - 1), so = inS(i, j + 1); if (n && !so) yaw = Math.PI; else if (!n && so) yaw = 0; }
+          if (yaw === null && axis !== 'z') { const w = inS(i - 1, j), e = inS(i + 1, j); if (w && !e) yaw = -Math.PI / 2; else if (!w && e) yaw = Math.PI / 2; }
+          if (yaw === null) addBlock('pRoof', grid.cx(i), topY + rh * 0.25, grid.cz(j), 0, { size: V3(c, rh * 0.5, c), color: roofT, target: isT });
+          else addBlock('pRoofW', grid.cx(i), y, grid.cz(j), yaw, { size: V3(c, rh, c), color: roofT, target: isT });
+        }
+        if (next.size) lastSet = next;
+        topY += rh; set = next;
+      }
+    }
+    if (isT) {
+      // vlajka na nejvyšší vrstvě, co nejblíž těžišti
+      const cells = [...lastSet], mi = cells.reduce((a, k) => a + k % nx, 0) / cells.length, mj = cells.reduce((a, k) => a + ((k / nx) | 0), 0) / cells.length;
+      const k = cells.reduce((best, k) => Math.hypot(k % nx - mi, ((k / nx) | 0) - mj) < Math.hypot(best % nx - mi, ((best / nx) | 0) - mj) ? k : best, cells[0]);
+      const x = grid.cx(k % nx), z = grid.cz((k / nx) | 0);
+      addBlock('pFlag', x, topY + 0.55, z, 0, { size: V3(0.05, 1.1, 0.05), color: new THREE.Color(0x2b2524), flag: true });
+      flag = addBlock('pFlag', x + 0.23, topY + 0.93, z, 0, { size: V3(0.4, 0.27, 0.02), color: new THREE.Color(0xc8261c), flag: true });
+    }
+  });
+  for (const k in meshes) {
+    const m = meshes[k]; m.count = used[k]; m.instanceColor.needsUpdate = true;
+    const ar = m.geometry.attributes.aRest; if (ar) ar.needsUpdate = true;
+  }
+  syncBlocks(true);
+  // zem, okolní čtvrť, stromy
+  if (groundTex) groundTex.dispose();
+  groundTex = paintMask(data, proj, s, A2);
+  if (groundMat.map !== groundTex) { groundMat.map = groundTex; groundMat.needsUpdate = true; }
+  groundMesh.scale.set(2 * A2, 1, 2 * A2); groundMesh.position.set(0, 0, ZC);
+  buildContext(ctx, s, r);
+  plantTrees(data, proj, s, A2, all, r);
+  built = 'place';
+  return { count, target: targetIdx >= 0, flag, bodies: blocks.length, cell: c, scale: s, context: ctx.length, trees: trunks.count };
+}
+
+// maska zemního shaderu: R silnice, G tráva, B dlažba/chodník, černá voda (2048² na celé okolí)
+function paintMask(data, proj, s, A2) {
+  const N = 2048, cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const x = cv.getContext('2d'), k = N / (2 * A2);
+  const P = p => { const [mx, mz] = proj(p); return [(mx * s + A2) * k, (mz * s + A2) * k]; };
+  const path = list => { x.beginPath(); list.forEach((p, i) => { const [u, v] = P(p); i ? x.lineTo(u, v) : x.moveTo(u, v); }); };
+  const fill = (rings, style) => { x.beginPath(); for (const rr of rings) rr.forEach((p, i) => { const [u, v] = P(p); i ? x.lineTo(u, v) : x.moveTo(u, v); }); x.fillStyle = style; x.fill('evenodd'); };
+  x.fillStyle = 'rgb(0,215,40)'; x.fillRect(0, 0, N, N);
+  for (const a of data.areas) fill(a.rings, a.kind === 'water' ? 'rgb(0,0,0)' : a.kind === 'green' ? 'rgb(0,255,0)' : 'rgb(0,0,255)');
+  for (const b of data.buildings) fill(b.rings, 'rgb(0,0,255)');
+  const RW = { motorway: 14, trunk: 12, primary: 11, secondary: 9, tertiary: 8, residential: 6, unclassified: 6, living_street: 5, service: 4, pedestrian: 5, track: 3, footway: 2, path: 1.6, cycleway: 2, steps: 2, bridleway: 2 };
+  const roads = data.roads.filter(rd => RW[rd.kind]).sort((a, b) => RW[a.kind] - RW[b.kind]);
+  x.lineCap = 'round'; x.lineJoin = 'round';
+  const foot = rd => RW[rd.kind] <= 2.5 || rd.kind === 'pedestrian' || rd.kind === 'track';
+  for (const rd of roads) if (!foot(rd)) { x.strokeStyle = 'rgb(0,0,255)'; x.lineWidth = (RW[rd.kind] + 4.5) * s * k; path(rd.pts); x.stroke(); }   // chodníky podél silnic
+  for (const rd of roads) { x.strokeStyle = foot(rd) ? 'rgb(0,0,255)' : 'rgb(255,0,0)'; x.lineWidth = Math.max(2, RW[rd.kind] * s * k); path(rd.pts); x.stroke(); }
+  const t = new THREE.CanvasTexture(cv);
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+
+// okolní domy mimo zničitelný výřez: vytažené půdorysy, fasáda s okny po patrech, ploché střechy (2 draw cally)
+let ctxMeshes = [];
+function splitGroups(geo) {
+  const out = [];
+  for (const gr of geo.groups) {
+    const part = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv']) {
+      const a = geo.attributes[name];
+      part.setAttribute(name, new THREE.BufferAttribute(a.array.slice(gr.start * a.itemSize, (gr.start + gr.count) * a.itemSize), a.itemSize));
+    }
+    (out[gr.materialIndex] ||= []).push(part);
+  }
+  return out.map(list => list.length === 1 ? list[0] : mergeGeometries(list));
+}
+function tint(geo, col) {
+  const n = geo.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; }
+  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
+}
+function buildContext(list, s, r) {
+  for (const m of ctxMeshes) { m.geometry.dispose(); ctxGroup.remove(m); const i = aimTargets.indexOf(m); if (i >= 0) aimTargets.splice(i, 1); }
+  ctxMeshes = [];
+  const walls = [], roofs = [], v2 = ([x, z]) => new THREE.Vector2(x * s, -(z * s + ZC));
+  for (const b of list) {
+    try {
+      const shape = new THREE.Shape(b.rings[0].map(v2));
+      for (const hole of b.rings.slice(1)) shape.holes.push(new THREE.Path(hole.map(v2)));
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.floors * 3 * s + 0.4 * s, bevelEnabled: false });
+      geo.rotateX(-Math.PI / 2);
+      const [cap, side] = splitGroups(geo); geo.dispose();
+      if (!cap || !side) continue;
+      tint(side, facadeOf(b.tags, r)); tint(cap, new THREE.Color(1, 1, 1).multiplyScalar(0.8 + r() * 0.2));
+      walls.push(side); roofs.push(cap);
+    } catch { /* rozbitý polygon přeskoč */ }
+  }
+  for (const [list2, mat] of [[walls, REAL.ctxWall], [roofs, REAL.ctxRoof]]) {
+    if (!list2.length) continue;
+    const m = new THREE.Mesh(mergeGeometries(list2), mat);
+    list2.forEach(g => g.dispose());
+    m.castShadow = true; m.receiveShadow = true;
+    ctxGroup.add(m); ctxMeshes.push(m); aimTargets.push(m);
+  }
+}
+
+// stromy: body z OSM (natural=tree), stromořadí a náhodně v zeleni podle hustoty; nikdy uvnitř domu
+function plantTrees(data, proj, s, A2, all, r) {
+  const pts = [];
+  const blocked = (mx, mz) => all.some(b => mx > b.box[0] - 1.5 && mx < b.box[1] + 1.5 && mz > b.box[2] - 1.5 && mz < b.box[3] + 1.5 && inPoly(mx, mz, b.rings));
+  const add = (mx, mz) => {
+    if (pts.length >= 650) return;
+    const x = mx * s, z = mz * s + ZC;
+    if (Math.abs(x) > A2 - 1 || Math.abs(z - ZC) > A2 - 1 || inCorridor(x - 0.8, x + 0.8, z - 0.8, z + 0.8) || blocked(mx, mz)) return;
+    pts.push([x, z, (6.5 + r() * 7) * s]);
+  };
+  for (const t of data.trees) { const [mx, mz] = proj(t); add(mx, mz); }
+  for (const row of data.treeRows) {
+    const m = row.map(proj);
+    for (let i = 1; i < m.length; i++) {
+      const [ax, az] = m[i - 1], [bx, bz] = m[i], L = Math.hypot(bx - ax, bz - az);
+      for (let d = 0; d < L; d += 8) add(ax + (bx - ax) * d / L, az + (bz - az) * d / L);
+    }
+  }
+  for (const a of data.areas) {
+    if (a.kind !== 'green') continue;
+    const t = a.tags || {}, lu = t.landuse || t.natural || t.leisure;
+    const dens = ['forest', 'wood'].includes(lu) ? 1 / 60 : lu === 'orchard' ? 1 / 45 : ['park', 'garden', 'cemetery'].includes(lu) ? 1 / 200 : 1 / 900;
+    const rings = a.rings.map(rr => rr.map(proj));
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, area = 0;
+    for (const rr of rings) for (let i = 0, j = rr.length - 1; i < rr.length; j = i++) { area += (rr[j][0] + rr[i][0]) * (rr[j][1] - rr[i][1]) / 2; x0 = Math.min(x0, rr[i][0]); x1 = Math.max(x1, rr[i][0]); z0 = Math.min(z0, rr[i][1]); z1 = Math.max(z1, rr[i][1]); }
+    let want = Math.min(90, Math.round(Math.abs(area) * dens)), tries = want * 6;
+    while (want > 0 && tries-- > 0) { const mx = x0 + r() * (x1 - x0), mz = z0 + r() * (z1 - z0); if (inPoly(mx, mz, rings)) { const before = pts.length; add(mx, mz); if (pts.length > before) want--; } }
+  }
+  trunks.count = crowns.count = 0;
+  const greens = [0x4d6b2e, 0x5a7a34, 0x3f5e2a, 0x6b8a3c, 0x55703a];
+  pts.forEach(([x, z, h], i) => {
+    _m.compose(_p.set(x, h * 0.22, z), _q.identity(), _s.set(h * 0.035, h * 0.44, h * 0.035)); trunks.setMatrixAt(i, _m);
+    const rad = h * (0.26 + r() * 0.08);
+    for (let b = 0; b < 2; b++) {
+      const ox = b ? (r() - 0.5) * rad * 0.8 : 0, oz = b ? (r() - 0.5) * rad * 0.8 : 0, sc = b ? 0.75 : 1;
+      _m.compose(_p.set(x + ox, h * (b ? 0.8 : 0.6), z + oz), _q.setFromAxisAngle(_up, r() * 6), _s.setScalar(rad * sc)); crowns.setMatrixAt(i * 2 + b, _m);
+      crowns.setColorAt(i * 2 + b, _c.setHex(greens[Math.floor(r() * greens.length)]).multiplyScalar(0.85 + r() * 0.3));
+    }
+  });
+  trunks.count = pts.length; crowns.count = pts.length * 2;
+  trunks.instanceMatrix.needsUpdate = crowns.instanceMatrix.needsUpdate = true;
+  if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+}
+
+// vzhled podle režimu: kampaň = soumrak nad mraky, moje místo = den nad skutečnou čtvrtí
+function setLook(mode) {
+  const day = mode === 'place';
+  sky.visible = !day; daySky.visible = day; clouds.visible = !day;
+  island.visible = platform.visible = stripe.visible = slingRock.visible = !day;
+  groundMesh.visible = farGround.visible = ctxGroup.visible = day;
+  scene.fog = day ? fogDay : fogDusk;
+  scene.environment = day ? getDayEnv() : duskEnv; scene.environmentIntensity = day ? 0.62 : 0.32;
+  hemi.intensity = day ? 0.22 : 0.95;
+  key.color.set(day ? 0xfff0dc : 0xffe4c8); key.intensity = day ? 3.2 : 3.1;
+  if (day) { key.target.position.set(0, 1, ZC); key.position.copy(SUN).multiplyScalar(45).add(key.target.position); }
+  else { key.target.position.set(0, 2, 0); key.position.set(-16, 22, 18); }
+  rim.visible = !day;
+  renderer.toneMapping = day ? THREE.AgXToneMapping : THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = day ? 1.0 : 1.0;
+  bloom.threshold = day ? 2.4 : 1.15; bloom.strength = day ? 0.45 : 0.75;
+  gtao.enabled = day;
+  dustMat.uniforms.uColor.value.set(day ? 0xb8ad9b : 0x8d7f8a);
+}
+
+function demolished(filter) {
+  let n = 0, t = 0;
+  for (const b of blocks) { if (b.charge || b.flag || (filter && !filter(b))) continue; t++; if (b.toppled || !b.alive) n++; }
+  return t ? Math.round(n / t * 100) : 0;
+}
+function setPlaceUI(on) {
+  $('attr').hidden = !on; $('chargesBox').hidden = !on; $('chHint').hidden = !on; $('rmbHint').hidden = on;
+}
+function renderCharges() { $('charges').innerHTML = Array.from({ length: PLACE_CHARGES }, (_, i) => `<i class="${i < PLACE_CHARGES - S.charges ? 'used' : ''}"></i>`).join(''); }
+function startPlace(P) {
+  if (S.ball) { phys.remove(S.ball.body); S.ball = null; }
+  const info = buildPlace(P);
+  S.kind = 'place'; S.place = info; S.maxShots = PLACE_SHOTS; S.charges = PLACE_CHARGES;
+  setLook('place'); clearDust();
+  tally = null; S.scoring = false; timeScale = 1; slowHold = 0; trauma = 0;
+  $('chipsBox').classList.remove('hot'); $('multBox').classList.remove('hot');
+  S.total = 0; S.shots = PLACE_SHOTS; S.target = 0;
+  $('lvl').innerHTML = `<b>Moje místo</b> · ${plural(info.count, 'budova', 'budovy', 'budov')}`;
+  setPlaceUI(true); renderScore(); renderShots(); renderMode(); renderCharges();
+  $('shot').textContent = ''; $('evt').textContent = '';
+  $('cardPlace').hidden = true; $('ov').hidden = true; $('hud').hidden = false;
+  $('engine').textContent = 'fyzika ' + phys.name;
+  nextShot(); canvas.focus();
+}
+function placeEnd() {
+  S.state = 'end'; showAimGizmos(false); ballMesh.visible = false; Snd.fanfare();
+  const lines = [['Skóre', fmt(S.total)]];
+  if (S.place.target) lines.push(['Tvůj dům', demolished(b => b.target) + ' %']);
+  lines.push(['Budovy', String(S.place.count)]);
+  showEnd(`Zbořeno ${demolished()} %`, fmt(S.total), lines, 'Znovu', 'Enter nebo R postaví místo znovu.', () => startPlace(place), { alt: 'Jiné místo', onAlt: openPlace });
+}
+function placeCharge() {
+  if (S.charges <= 0 || S.state !== 'aim') return;
+  if (!aim.hit) { evt('Nálož polož na budovu nebo na zem'); return; }
+  const p = aim.p, n = aim.n, up = n.y > 0.6;
+  const x = up ? p.x : p.x + n.x * 0.343, z = up ? p.z : p.z + n.z * 0.343;
+  const y = up ? p.y + 0.413 : Math.max(p.y, 0.413);
+  const b = addBlock('tnt', x, y, z, 0, { charge: true });
+  if (!b) return;
+  meshes.tnt.count = used.tnt; meshes.tnt.instanceColor.needsUpdate = true; syncBlocks(true); meshes.tnt.computeBoundingSphere();
+  S.charges--; renderCharges(); Snd.tick(12); fxDust(V3(x, y, z), 0.3); popup('Nálož', V3(x, y, z), 'c');
+}
+function detonate() {
+  if (S.state !== 'aim') return;
+  const list = blocks.filter(b => b.charge && b.alive && !b.armed);
+  if (!list.length) { evt('Nejdřív polož nálož pravým tlačítkem'); return; }
+  S.state = 'flight'; S.scoring = true; S.chips = 0; S.mult = 1; S.since = 0; S.calm = 0; S.firstHit = true; S.chain = 0;
+  showTally(); $('cm').classList.remove('idle'); $('shot').textContent = '';
+  showAimGizmos(false); ballMesh.visible = false;
+  cam.mode = 'watch'; cam.side = phys.pos(list[0].body).x >= 0 ? 1 : -1;
+  list.forEach((b, i) => arm(b, 0.45 + i * 0.24));   // kaskáda: nálože jdou postupně
+  evt('Odpal!'); Snd.creak();
+}
+function openPlace() {
+  S.state = 'menu'; cam.mode = 'title';
+  $('cardTitle').hidden = true; $('cardEnd').hidden = true; $('cardPlace').hidden = false; $('ov').hidden = false; $('hud').hidden = true;
+  $('placeErr').hidden = true;
+  setTimeout(() => $('loc').focus(), 50);
+  setupMap().then(ok => { if (ok) setTimeout(() => $('q').focus(), 120); });
+}
+function showPlaceErr(msg) { const e = $('placeErr'); e.textContent = msg; e.hidden = false; }
+async function loadPlaceFile(file) {
+  $('placeErr').hidden = true;
+  if (!file) return;
+  if (file.size > 80e6) { showPlaceErr('Soubor je moc velký. Vyexportuj menší oblast, stačí pár ulic kolem domu.'); return; }
+  const drop = $('drop'), label = drop.textContent; drop.textContent = 'Stavím…';
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const data = parseOSM(await file.text());
+    place = { data, center: placeCenter };
+    startPlace(place);
+  } catch (e) {
+    console.warn(e);
+    showPlaceErr(e.user ? e.message : 'Soubor se nepodařilo zpracovat. Stáhni ho znovu přes Export na openstreetmap.org a zkus to ještě jednou.');
+  } finally { drop.textContent = label; }
+}
+$('loc').addEventListener('input', () => {
+  const v = $('loc').value.trim(), c = v ? parseCoords(v) : null, out = $('locOut'), a = $('osmLink');
+  placeCenter = c;
+  out.classList.toggle('ok', !!c);
+  if (c) {
+    const la = c[0].toFixed(5), lo = c[1].toFixed(5);
+    out.textContent = `Střed: ${la}, ${lo}. Tady bude tvůj dům s vlajkou.`;
+    a.href = `https://www.openstreetmap.org/export#map=19/${la}/${lo}`; a.textContent = 'Otevřít toto místo na openstreetmap.org';
+  } else {
+    out.textContent = !v ? 'Střed vloženého místa bude tvůj dům s vlajkou.'
+      : /goo\.gl|maps\.app/.test(v) ? 'Zkrácený odkaz souřadnice neobsahuje. Otevři ho a zkopíruj adresu z adresního řádku, nebo klikni na mapě pravým tlačítkem a zkopíruj čísla.'
+      : 'V textu nevidím souřadnice. Vlož celý odkaz z adresního řádku, nebo dvojici čísel jako 50.0875, 14.4213.';
+    a.href = 'https://www.openstreetmap.org/export'; a.textContent = 'Otevřít export na openstreetmap.org';
+  }
+});
+// ---------- výběr místa na mapě: jen když stránka smí na cizí servery (vlastní hosting); v artefaktu zůstane soubor ----------
+let mapState = null, mapCheck = null;
+const LEAFLET = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a>';
+function canReachMaps() {
+  return (mapCheck ||= new Promise(res => {
+    const img = new Image(), t = setTimeout(() => res(false), 5000);
+    img.onload = () => { clearTimeout(t); res(true); }; img.onerror = () => { clearTimeout(t); res(false); };
+    img.src = 'https://tile.openstreetmap.org/0/0/0.png';
+  }));
+}
+function loadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  return new Promise((res, rej) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET + 'leaflet.min.css'; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src = LEAFLET + 'leaflet.min.js'; js.onload = () => res(window.L); js.onerror = rej; document.head.appendChild(js);
+  });
+}
+async function setupMap() {
+  if (!(await canReachMaps())) return false;
+  try {
+    if (!mapState) {
+      const L = await loadLeaflet();
+      const map = L.map('map').setView(placeCenter || [49.8, 15.5], placeCenter ? 18 : 7);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: OSM_ATTR }).addTo(map);
+      map.on('click', e => pickPoint([e.latlng.lat, e.latlng.lng], false));
+      mapState = { L, map, marker: null };
+    }
+  } catch (e) { console.warn('Mapa se nenačetla', e); return false; }
+  $('mapBox').hidden = false; $('steps').hidden = true;
+  setTimeout(() => mapState.map.invalidateSize(), 80);
+  if (placeCenter) pickPoint(placeCenter, true);
+  return true;
+}
+function pickPoint(ll, fly) {
+  placeCenter = ll;
+  const { L, map } = mapState;
+  if (mapState.marker) mapState.marker.setLatLng(ll);
+  else mapState.marker = L.circleMarker(ll, { radius: 9, color: '#1b1206', weight: 2, fillColor: '#ffc23a', fillOpacity: 1 }).addTo(map);
+  if (fly) map.setView(ll, Math.max(map.getZoom(), 18));
+  $('buildBtn').disabled = false;
+  $('mapHint').textContent = `Vybráno ${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}. Tady bude tvůj dům s vlajkou.`;
+}
+async function fetchPlace([lat, lon]) {
+  const r = 160, dLat = r / 110540, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
+  const bounds = { minlat: lat - dLat, maxlat: lat + dLat, minlon: lon - dLon, maxlon: lon + dLon };
+  const bb = [bounds.minlat, bounds.minlon, bounds.maxlat, bounds.maxlon].map(v => v.toFixed(6)).join(',');
+  const parts = ['way["building"]', 'relation["building"]', 'way["highway"]', 'way["landuse"]', 'way["leisure"]', 'way["natural"]', 'way["amenity"="parking"]', 'relation["landuse"]', 'relation["leisure"]', 'relation["natural"]', 'node["natural"="tree"]'];
+  const q = `[out:xml][timeout:25];(${parts.map(x => `${x}(${bb});`).join('')});(._;>;);out body;`;
+  for (const url of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter']) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      if (!res.ok) continue;
+      const data = parseOSM(await res.text());
+      data.bounds = bounds;
+      return data;
+    } catch (e) { if (e.user) throw e; }
+  }
+  throw userErr('Server s mapovými daty teď neodpovídá. Zkus to za chvíli, nebo nahraj soubor ručně.');
+}
+$('searchForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('q').value.trim(), ul = $('results'); if (!q) return;
+  const coords = parseCoords(q); if (coords && mapState) { pickPoint(coords, true); ul.hidden = true; return; }
+  ul.hidden = false; ul.innerHTML = '<li class="hintline">Hledám…</li>';
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=cs&q=${encodeURIComponent(q)}`);
+    const list = await res.json();
+    ul.innerHTML = '';
+    if (!list.length) { ul.innerHTML = '<li class="hintline">Nic jsem nenašel. Zkus přidat město.</li>'; return; }
+    for (const it of list) {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.textContent = it.display_name; b.addEventListener('click', () => { pickPoint([+it.lat, +it.lon], true); ul.hidden = true; });
+      li.appendChild(b); ul.appendChild(li);
+    }
+  } catch { ul.innerHTML = '<li class="hintline">Vyhledávání teď nejde. Klikni rovnou do mapy.</li>'; }
+});
+$('buildBtn').addEventListener('click', async () => {
+  if (!placeCenter) return;
+  const b = $('buildBtn'), hint = $('mapHint');
+  b.disabled = true; hint.textContent = 'Stahuju budovy z OpenStreetMap…'; $('placeErr').hidden = true;
+  try { const data = await fetchPlace(placeCenter); place = { data, center: placeCenter }; startPlace(place); }
+  catch (e) { console.warn(e); showPlaceErr(e.user ? e.message : 'Stavba se nepovedla. Zkus jiné místo, nebo nahraj soubor ručně.'); }
+  finally { b.disabled = false; hint.textContent = `Vybráno ${placeCenter[0].toFixed(5)}, ${placeCenter[1].toFixed(5)}.`; }
+});
+$('manualBtn').addEventListener('click', () => { $('steps').hidden = !$('steps').hidden; });
+$('placeBtn').addEventListener('click', () => { Snd.init(); openPlace(); });
+$('placeBack').addEventListener('click', () => { $('cardPlace').hidden = true; $('cardTitle').hidden = false; S.state = 'title'; setTimeout(() => $('play').focus(), 50); });
+const drop = $('drop');
+drop.addEventListener('click', () => $('file').click());
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
+$('file').addEventListener('change', e => { loadPlaceFile(e.target.files[0]); e.target.value = ''; });
+addEventListener('dragover', e => { e.preventDefault(); if (!$('cardPlace').hidden) drop.classList.add('over'); });
+addEventListener('dragleave', e => { if (e.target === drop || !e.relatedTarget) drop.classList.remove('over'); });
+addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (!$('cardPlace').hidden) loadPlaceFile(e.dataTransfer?.files?.[0]); });
+
+// ---------- vstup ----------
+function toggleMode() { if (S.state !== 'aim' && S.state !== 'pull') return; S.mode = S.mode === 'flat' ? 'lob' : 'flat'; renderMode(); Snd.tick(S.mode === 'flat' ? 4 : 9); }
+canvas.addEventListener('pointermove', e => { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); aim.forced = null; });
+canvas.addEventListener('pointerdown', e => {
+  Snd.init();
+  if (e.button === 2) { if (S.charges > 0 && S.state === 'aim') placeCharge(); else toggleMode(); return; }
+  if (e.button === 0 && S.state === 'aim' && S.shots > 0) { S.state = 'pull'; pullT = 0; Snd.creak(); }
+});
+addEventListener('pointerup', e => { if (e.button === 0 && S.state === 'pull') fire(); });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('keydown', e => {
+  if (e.target instanceof HTMLElement && e.target.matches('input, textarea, button, [role=button]') && e.code !== 'Escape') return;
+  if (e.code === 'Space') { e.preventDefault(); toggleMode(); }
+  else if (e.code === 'KeyD' && S.kind === 'place') detonate();
+  else if (e.code === 'KeyM') { Snd.init(); Snd.setMuted(!Snd.muted); evt(Snd.muted ? 'Zvuk vypnutý' : 'Zvuk zapnutý'); }
+  else if (e.code === 'KeyR' && !['loading', 'title', 'menu'].includes(S.state)) { e.preventDefault(); if (S.kind === 'place') startPlace(place); else startLevel(S.level); }
+  else if (e.code === 'Enter' && !$('cardEnd').hidden && !$('ov').hidden && S.state === 'end') { e.preventDefault(); $('endBtn').click(); }
+  else if (e.code === 'Escape' && S.state === 'pull') { S.state = 'aim'; pull = 0; }
+});
+$('fresh').addEventListener('click', () => { Snd.init(); $('cardTitle').hidden = true; startLevel(1); $('engine').textContent = 'fyzika ' + phys.name; });
+$('play').addEventListener('click', () => {
+  Snd.init(); $('cardTitle').hidden = true;
+  startLevel(S.level, false);
+  $('engine').textContent = 'fyzika ' + phys.name;
+});
+
+// ---------- smyčka ----------
+let last = performance.now(), frameNo = 0, speedup = 1;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t = performance.now(), rdt = clamp((t - last) / 1000, 0, 1 / 30) * speedup;   // časová značka rAF umí jít zpět, záporný krok by vracel svět
+  last = t; clock += rdt; frameNo++;
+  if (slowHold > 0) slowHold -= rdt; else if (timeScale < 1) timeScale = Math.min(1, timeScale + (1 - slowMin) * rdt / slowRel);
+  const dt = rdt * timeScale;
+  if (phys) {
+    const n = Math.max(1, Math.ceil(rdt * 60 - 0.01)), h = dt / n;
+    for (let i = 0; i < n; i++) { phys.step(h); postStep(); }
+    for (let k = timers.length - 1; k >= 0; k--) { const t = timers[k]; t.t -= dt; if (t.t <= 0) { timers.splice(k, 1); t.fn(); } }
+    let armed = 0;
+    for (const b of blocks) {
+      if (!b.alive || !b.armed) continue; armed++;
+      b.fuse -= dt;
+      const f = (Math.sin(clock * 60) > 0) ? 4.5 : 1.2; b.mesh.setColorAt(b.idx, _c.setRGB(f, f * 0.85, f * 0.7)); b.mesh.instanceColor.needsUpdate = true;
+      if (b.fuse <= 0) explode(b);
+    }
+    if (frameNo % 3 === 0) checkBlocks();
+    syncBlocks(false);
+    if (S.ball) {
+      const p = phys.pos(S.ball.body), q = phys.rot(S.ball.body);
+      ballMesh.position.set(p.x, p.y, p.z); ballMesh.quaternion.set(q.x, q.y, q.z, q.w);
+      if (S.state === 'flight') { trailPts.unshift(V3(p.x, p.y, p.z)); if (trailPts.length > TRAIL_N) trailPts.pop(); }
+    }
+    if (S.state === 'flight') {
+      S.since += rdt;
+      let maxV = 0;
+      for (const b of blocks) { if (!b.alive || phys.sleeping(b.body)) continue; const p = phys.pos(b.body); if (p.y < -3) continue; const v = phys.vel(b.body); maxV = Math.max(maxV, Math.hypot(v.x, v.y, v.z)); }
+      if (S.ball) { const p = phys.pos(S.ball.body); if (p.y > -3) { const v = phys.vel(S.ball.body); maxV = Math.max(maxV, Math.hypot(v.x, v.y, v.z)); } }
+      S.calm = maxV < 0.45 ? S.calm + rdt : 0;
+      if ((S.calm > 0.6 && S.since > 1.4 && !timers.length && !armed) || S.since > 11) endShot();
+    }
+    if (S.state === 'aim' || S.state === 'pull') updateAim();
+    if (S.kind === 'place' && S.state === 'flight' && frameNo % 10 === 0) renderScore();
+  }
+  // štítek nad vlajkou tvého domu, dokud nepadne první rána
+  const fb = S.kind === 'place' && S.place?.flag;
+  if (fb && fb.alive && S.shots === S.maxShots && (S.state === 'aim' || S.state === 'pull')) {
+    const p = phys.pos(fb.body); _v.set(p.x, p.y + 0.3, p.z).project(camera);
+    tagEl.hidden = false; tagEl.style.transform = `translate(${(_v.x * 0.5 + 0.5) * innerWidth}px,${(-_v.y * 0.5 + 0.5) * innerHeight}px) translate(-50%,calc(-100% - 8px))`;
+  } else tagEl.hidden = true;
+  if (tally) updateTally(rdt);
+  // stopa koule
+  const tn = S.state === 'flight' && !S.firstHit ? trailPts.length : 0;   // stopa jen v letu, po nárazu by visela ve vzduchu
+  for (let i = 0; i < tn; i++) { _m.compose(trailPts[i], _q.identity(), _s.setScalar(0.3 * Math.pow(1 - i / TRAIL_N, 1.3))); trail.setMatrixAt(i, _m); }
+  trail.count = tn; trail.instanceMatrix.needsUpdate = true;
+  for (const f of allFx) f.update(dt);
+  updateDust(dt);
+  for (const r of rings) {
+    if (r.userData.t >= 1) { r.visible = false; continue; }
+    r.userData.t = Math.min(1, r.userData.t + dt / 0.5); const t = r.userData.t;
+    r.scale.setScalar(0.3 + easeOut(t) * 4.4); r.material.opacity = (1 - t) * 0.8;
+  }
+  boomLight.intensity *= Math.exp(-rdt * 7);
+  trauma = Math.max(0, trauma - rdt * 1.3);
+  if (evtTimer > 0) { evtTimer -= rdt; if (evtTimer <= 0) $('evt').style.opacity = 0; }
+  // mraky
+  for (let i = 0; i < cloudData.length; i++) { const d = cloudData[i]; d.p.x += d.v * rdt; if (d.p.x > 160) d.p.x -= 320; _m.compose(d.p, _q.identity(), d.s); clouds.setMatrixAt(i, _m); }
+  clouds.instanceMatrix.needsUpdate = true;
+  updateSling(rdt);
+  updateCamera(rdt);
+  updatePops(rdt);
+  composer.render();
+  // impact frame: 2 snímky invertované, pak záře doznívá
+  const fl = $('flash');
+  if (ifFrames > 0) { fl.style.opacity = 1; ifFrames--; } else if (fl.style.opacity !== '0') fl.style.opacity = 0;
+  if (glowA > 0.01) { glowA *= Math.exp(-rdt * 9); $('glow').style.opacity = glowA; } else if (glowA) { glowA = 0; $('glow').style.opacity = 0; }
+}
+
+// ---------- start ----------
+window.kaskada = {
+  get state() { return S.state; },
+  info: () => ({ kind: S.kind, pct: demolished(), placeInfo: S.place && { count: S.place.count, bodies: S.place.bodies, cell: +S.place.cell.toFixed(3), scale: +S.place.scale.toFixed(3), target: S.place.target }, charges: S.charges, state: S.state, level: S.level, total: S.total, target: S.target, shots: S.shots, chips: S.chips, mult: S.mult, alive: blocks.filter(b => b.alive).length, blocks: blocks.length, phys: phys && phys.name }),
+  aimAt(x, y, z) { aim.forced = V3(x, y, z); },
+  mode(m) { S.mode = m; renderMode(); },
+  speed(k) { speedup = k; },
+  screenOf(x, y, z) { _v.set(x, y, z).project(camera); return { x: (_v.x * 0.5 + 0.5) * innerWidth, y: (-_v.y * 0.5 + 0.5) * innerHeight }; },
+  targetPoint() {
+    let best = null;
+    for (const b of blocks) if (b.target && b.alive && b.kind.startsWith('pWall')) { const p = phys.pos(b.body), z = p.z + b.scale.z / 2; if (!best || z > best.z + 1e-3 || (Math.abs(z - best.z) < 1e-3 && p.y < best.y)) best = { x: p.x, y: p.y, z }; }
+    return best;
+  },
+};
+async function boot(data) {
+  if (data && data.level) S.level = data.level;
+  window.claude?.hot?.snapshot?.(() => ({ level: S.level }));
+  if (matchMedia('(pointer: coarse)').matches || innerWidth < 760) $('desk').hidden = false;
+  requestAnimationFrame(frame);
+  try { phys = await makePhysics(); }
+  catch (e) { console.error(e); $('play').textContent = 'Fyziku se nepodařilo načíst'; return; }
+  buildLevel(S.level); S.state = 'title';
+  showAimGizmos(false); ballMesh.position.copy(SLING);
+  const b = $('play'); b.disabled = false; b.textContent = S.level > 1 ? `Hrát · úroveň ${S.level}` : 'Hrát'; b.focus();
+  if (S.level > 1) $('fresh').hidden = false;
+  $('placeBtn').disabled = false;
+}
+window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+</script>
