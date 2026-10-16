@@ -3850,9 +3850,13 @@ function requestLock() {
   catch { lockFail(); }
   $('lockHint').hidden = !!document.pointerLockElement;
 }
-function lockFail() { H.lockFailed = true; $('lockHint').textContent = 'Rozhlížej se tažením pravým tlačítkem myši'; $('lockHint').hidden = H.state !== 'play'; clearTimeout(H.hintT); H.hintT = setTimeout(() => { $('lockHint').hidden = true; }, 5000); }
+function lockFail() {
+  // Chrome po Esc chvíli nedovolí myš znovu zachytit; to není trvalé selhání, stačí kliknout znovu
+  if (performance.now() - (H.unlockAt || -1e9) < 2500) { $('lockHint').textContent = 'Klikni do hry a rozhlížej se myší'; $('lockHint').hidden = H.state !== 'play'; return; }
+  H.lockFailed = true; $('lockHint').textContent = 'Rozhlížej se tažením pravým tlačítkem myši'; $('lockHint').hidden = H.state !== 'play'; clearTimeout(H.hintT); H.hintT = setTimeout(() => { $('lockHint').hidden = true; }, 5000); }
 document.addEventListener('pointerlockchange', () => {
   PL.locked = document.pointerLockElement === canvas;
+  if (!PL.locked) H.unlockAt = performance.now();
   $('lockHint').hidden = PL.locked || H.state !== 'play';
   if (!PL.locked && H.state === 'play' && !H.ignoreUnlock) housePause();
   H.ignoreUnlock = false;
