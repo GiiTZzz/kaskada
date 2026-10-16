@@ -12,6 +12,14 @@ a jedna dobrá rána spustí řetězovou reakci.
   stáhnou z OpenStreetMap a postaví z bloků. Pravým tlačítkem položíš nálož (máš 5), klávesa `D` je
   odpálí postupně za sebou. Na konci uvidíš, kolik procent čtvrti padlo.
 
+- **Bourání domu:** jeden dům zblízka z první osoby. Zdi a stropy jsou z 10cm kostek (omítka navrchu,
+  uvnitř cihla a beton), uvnitř jsou pokoje s nábytkem, schody a hůra pod krovem. Na titulce dej
+  *Bourání domu* (ukázkový dům), nebo v *Moje místo* vyber *Můj dům zblízka* a klikni na svůj dům.
+  V editoru doladíš patra, střechu a barvy. Vnitřek je vymyšlený, OpenStreetMap ho nezná.
+  - `W A S D` chůze, myš rozhlížení, levé tlačítko nářadí, `1`–`5` nebo kolečko výběr nářadí
+  - kladivo (omítka, cihly, dřevo), perlík (i beton), sbíječka (všechno, přesně), nálože (`E` odpálí), bourací koule
+  - `F` létání (mezerník nahoru, `C` dolů), `Esc` pauza
+
 ## Jak to běží
 
 Jedna stránka `index.html` bez sestavování. Knihovny se načítají z CDN (three.js r185, Rapier 0.19.3,

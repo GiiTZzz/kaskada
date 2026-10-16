@@ -13,3 +13,8 @@ Všechny z [Poly Haven](https://polyhaven.com), licence CC0, zmenšené na 512 p
 | asphalt.jpg | asphalt_02 |
 | grass.jpg | leafy_grass |
 | pavers.jpg | square_concrete_pavers |
+| parquet.jpg | laminate_floor_02 |
+| timber.jpg | brown_planks_03 |
+| oak.jpg | oak_wood_planks |
+| tiles.jpg | long_white_tiles |
+| fabric.jpg | rough_linen (odbarveno na šedou, barví se v enginu) |
