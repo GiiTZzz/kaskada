@@ -208,7 +208,7 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="tr"><div class="mode" id="hFly"></div></div>
   <div class="bc"><div class="evt" id="hEvt"></div><div class="tools" id="tools"></div></div>
   <div class="bl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> chůze · myš rozhlížení · <b>levé tlačítko</b> nářadí · <kbd>1</kbd>–<kbd>5</kbd> nebo kolečko výběr · <kbd>E</kbd> odpálit nálože · <kbd>Esc</kbd> pauza</div>
-  <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a> · </span><span id="hEngine"></span></div>
+  <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a><span id="hCz" hidden> · ortofoto, RÚIAN a výškopis © <a href="https://cuzk.gov.cz" target="_blank" rel="noopener">ČÚZK</a> (CC BY 4.0)</span> · </span><span id="hEngine"></span></div>
   <div class="lockhint" id="lockHint" hidden>Klikni do hry a rozhlížej se myší</div>
 </div>
 
@@ -696,18 +696,24 @@ const REAL = {
   far: triplanar(new THREE.MeshStandardMaterial({ map: photo('grass'), color: 0xb9d68f, roughness: 1 }), 2.5, 'world'),
 };
 // zem místa: maska (R silnice, G tráva, B dlažba, černá voda) + detailní fotografie ve světových souřadnicích
+const ORTHO_U = { tex: { value: new THREE.DataTexture(new Uint8Array([128, 128, 128, 0]), 1, 1) }, k: { value: 0 }, detL: { value: new THREE.Vector3(0.2, 0.15, 0.3) } };
+ORTHO_U.tex.value.needsUpdate = true;
 const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96 });
 groundMat.onBeforeCompile = sh => {
-  Object.assign(sh.uniforms, { uInvS, tRoad: { value: photo('asphalt') }, tGrass: { value: photo('grass') }, tPave: { value: photo('pavers') } });
+  Object.assign(sh.uniforms, { uInvS, tRoad: { value: photo('asphalt') }, tGrass: { value: photo('grass') }, tPave: { value: photo('pavers') }, tOrtho: ORTHO_U.tex, uOrthoK: ORTHO_U.k, uDetL: ORTHO_U.detL });
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGw;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGw = (modelMatrix * vec4(position, 1.0)).xyz;');
   sh.fragmentShader = sh.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vGw;\nuniform float uInvS;\nuniform sampler2D tRoad, tGrass, tPave;')
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGw;\nuniform float uInvS;\nuniform sampler2D tRoad, tGrass, tPave, tOrtho;\nuniform float uOrthoK;\nuniform vec3 uDetL;')
     .replace('#include <map_fragment>', `
       vec4 msk = texture2D(map, vMapUv);
       vec2 gw = vGw.xz * uInvS;
       vec3 cRoad = texture2D(tRoad, gw / 4.0).rgb, cGrass = texture2D(tGrass, gw / 2.5).rgb * vec3(0.72, 0.98, 0.5), cPave = texture2D(tPave, gw / 2.0).rgb;
       float land = msk.r + msk.g + msk.b;
       vec3 gc = (cRoad * msk.r + cGrass * msk.g + cPave * msk.b) / max(land, 1.0) + vec3(0.06, 0.1, 0.13) * clamp(1.0 - land, 0.0, 1.0);
+      vec4 orth = texture2D(tOrtho, vMapUv);
+      float dRef = (uDetL.x * msk.r + uDetL.y * msk.g + uDetL.z * msk.b) / max(land, 1.0) + 0.02;
+      vec3 oc = orth.rgb * clamp(dot(gc, vec3(0.2126, 0.7152, 0.0722)) / dRef, 0.6, 1.45);   // barva z ortofota, zrno z fotky
+      gc = mix(gc, oc, uOrthoK * orth.a);
       diffuseColor.rgb *= gc;`);
 };
 groundMat.customProgramCacheKey = () => 'ground-splat';
@@ -1818,23 +1824,27 @@ function tint(geo, col) {
   for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; }
   geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
 }
-function buildContext(list, s, r, zc = ZC) {
+function buildContext(list, s, r, zc = ZC, o = {}) {
   for (const m of ctxMeshes) { m.geometry.dispose(); ctxGroup.remove(m); const i = aimTargets.indexOf(m); if (i >= 0) aimTargets.splice(i, 1); }
   ctxMeshes = [];
-  const walls = [], roofs = [], v2 = ([x, z]) => new THREE.Vector2(x * s, -(z * s + zc));
+  const walls = [], roofs = [], roofsP = [], v2 = ([x, z]) => new THREE.Vector2(x * s, -(z * s + zc));
   for (const b of list) {
     try {
+      const info = o.roofOf ? o.roofOf(b) : null, fc = facadeOf(b.tags, r);
       const shape = new THREE.Shape(b.rings[0].map(v2));
       for (const hole of b.rings.slice(1)) shape.holes.push(new THREE.Path(hole.map(v2)));
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: b.floors * 3 * s + 0.4 * s, bevelEnabled: false });
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: info ? info.h * s : b.floors * 3 * s + 0.4 * s, bevelEnabled: false });
       geo.rotateX(-Math.PI / 2);
       const [cap, side] = splitGroups(geo); geo.dispose();
       if (!cap || !side) continue;
-      tint(side, facadeOf(b.tags, r)); tint(cap, new THREE.Color(1, 1, 1).multiplyScalar(0.8 + r() * 0.2));
+      tint(side, fc); tint(cap, info?.capCol || new THREE.Color(1, 1, 1).multiplyScalar(0.8 + r() * 0.2));
       walls.push(side); roofs.push(cap);
-    } catch { /* rozbitý polygon přeskoč */ }
+      if (info?.geo?.roof) roofsP.push(info.geo.roof);
+      if (info?.geo?.gables) { tint(info.geo.gables, fc); walls.push(info.geo.gables); }
+    } catch (e) { /* rozbitý polygon přeskoč */ }
   }
-  for (const [list2, mat] of [[walls, REAL.ctxWall], [roofs, REAL.ctxRoof]]) {
+  REAL.ctxTile ||= triplanar(new THREE.MeshStandardMaterial({ map: photo('rooftiles'), roughness: 0.8, vertexColors: true }), 1.3, 'world');
+  for (const [list2, mat] of [[walls, REAL.ctxWall], [roofs, REAL.ctxRoof], [roofsP, REAL.ctxTile]]) {
     if (!list2.length) continue;
     const m = new THREE.Mesh(mergeGeometries(list2), mat);
     list2.forEach(g => g.dispose());
@@ -1871,7 +1881,11 @@ function plantTrees(data, proj, s, A2, all, r, o = {}) {
     let want = Math.min(90, Math.round(Math.abs(area) * dens)), tries = want * 6;
     while (want > 0 && tries-- > 0) { const mx = x0 + r() * (x1 - x0), mz = z0 + r() * (z1 - z0); if (inPoly(mx, mz, rings)) { const before = pts.length; add(mx, mz); if (pts.length > before) want--; } }
   }
+  drawTrees(pts, r);
+}
+function drawTrees(pts, r) {
   trunks.count = crowns.count = 0;
+  pts = pts.slice(0, 700);
   const greens = [0x4d6b2e, 0x5a7a34, 0x3f5e2a, 0x6b8a3c, 0x55703a];
   pts.forEach(([x, z, h], i) => {
     _m.compose(_p.set(x, h * 0.22, z), _q.identity(), _s.set(h * 0.035, h * 0.44, h * 0.035)); trunks.setMatrixAt(i, _m);
@@ -1978,7 +1992,7 @@ async function loadPlaceFile(file) {
   try {
     const data = parseOSM(await file.text());
     place = { data, center: placeCenter };
-    goPlace(place);
+    await goPlace(place);
   } catch (e) {
     console.warn(e);
     showPlaceErr(e.user ? e.message : 'Soubor se nepodařilo zpracovat. Stáhni ho znovu přes Export na openstreetmap.org a zkus to ještě jednou.');
@@ -2080,7 +2094,7 @@ $('buildBtn').addEventListener('click', async () => {
   if (!placeCenter) return;
   const b = $('buildBtn'), hint = $('mapHint');
   b.disabled = true; hint.textContent = 'Stahuju budovy z OpenStreetMap…'; $('placeErr').hidden = true;
-  try { const data = await fetchPlace(placeCenter); place = { data, center: placeCenter }; goPlace(place); }
+  try { const data = await fetchPlace(placeCenter); place = { data, center: placeCenter }; await goPlace(place); }
   catch (e) { console.warn(e); showPlaceErr(e.user ? e.message : 'Stavba se nepovedla. Zkus jiné místo, nebo nahraj soubor ručně.'); }
   finally { b.disabled = false; hint.textContent = `Vybráno ${placeCenter[0].toFixed(5)}, ${placeCenter[1].toFixed(5)}.`; }
 });
@@ -2301,8 +2315,11 @@ function genHouse(spec) {
     types.push(t);
   }
   const pick = a => a[Math.floor(r() * a.length)];
-  const paint = types.map(t => t.map(tp => MAT.paint(pick(PAINTS[tp] || PAINTS.hall))));
-  const bathTile = MAT.tileW(0xe7edef), bathAbove = MAT.paint(0xf4f4f2);
+  // jádro zdí podle druhu konstrukce (RÚIAN): cihla, kámen, panel/monolit, dřevo
+  const core = CORE[spec.core] || CORE.brick;
+  const Wm = c => vmat({ s: 'plaster', sc: c, c: core.c, cc: core.cc, r: 0.88, h: core.h, d: core.d, st: 1 });
+  const paint = types.map(t => t.map(tp => Wm(pick(PAINTS[tp] || PAINTS.hall))));
+  const bathTile = MAT.tileW(0xe7edef), bathAbove = Wm(0xf4f4f2);
   const floorMat = types.map((t, k) => t.map(tp => tp === 'bath' ? MAT.tileF(0xd6d9da) : tp === 'kitchen' ? MAT.tileF(0xcbc3b6) : tp === 'hall' && k === 0 ? MAT.tileF(0xb9b0a3) : MAT.parq()));
   // 4) střecha: obdélníky půdorysu (dům ve tvaru L má dva)
   const rects = pitched ? roofRects(mask, nx, nz, ox, oz) : [];
@@ -2327,8 +2344,8 @@ function genHouse(spec) {
   H.rects = rects; H.flat = !pitched; H.YA = YA; H.F = F;
   const vox = H.vox, set = (x, y, z, m) => { if (x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz) vox[x + nx * (z + nz * y)] = m; };
   const get = (x, y, z) => (x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz) ? vox[x + nx * (z + nz * y)] : 0;
-  const facade = MAT.facade(spec.facade), facadeIn = MAT.facade(spec.facade), plinth = MAT.plinth(spec.plinth ?? 0x8e8a84);
-  const brick = MAT.brick(), conc = MAT.conc(), ceil = MAT.ceil(), boards = MAT.boards(), membrane = MAT.membrane();
+  const facade = Wm(spec.facade), facadeIn = facade, plinth = MAT.plinth(spec.plinth ?? 0x8e8a84);
+  const brick = core === CORE.brick ? MAT.brick() : vmat({ s: core.c, sc: core.cc ?? 0xffffff, h: core.h, d: core.d, st: 1 }), conc = MAT.conc(), ceil = MAT.ceil(), boards = MAT.boards(), membrane = MAT.membrane();
   const capMetal = MAT.metal(0x6f7275);
   // výmalba zdí podle sousední místnosti (vnitřní líc obvodové zdi i příčky)
   const wallPaint = (k, i, y) => {
@@ -2339,7 +2356,7 @@ function genHouse(spec) {
       if (types[k][ro] === 'bath') return y - (FLOOR0 + STY * k) < 20 ? bathTile : bathAbove;
       return paint[k][ro];
     }
-    return MAT.paint(0xeeebe4);
+    return Wm(0xeeebe4);
   };
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) {
     const i = x + nx * z; if (!mask[i]) continue;
@@ -2759,7 +2776,7 @@ function genRoof(spec, rects, Ye, tanP, P, ridgeAlongX, chimney, r) {
   const inChim = (x, z, pad) => chimney && x > chimney.x0 - pad && x < chimney.x1 + pad && z > chimney.z0 - pad && z < chimney.z1 + pad;
   const xAx = V3(1, 0, 0);
   const qFace = e => new THREE.Quaternion().setFromAxisAngle(_up, Math.atan2(-e[0], -e[1])).multiply(new THREE.Quaternion().setFromAxisAngle(xAx, -P));
-  const tile = new THREE.Color(spec.roofCol), capCol = tile.clone().multiplyScalar(0.78);
+  const tile = roofTint(spec.roofCol), capCol = tile.clone().multiplyScalar(0.78);
   for (const rc of rects) {
     const ax = ridgeAlongX(rc), hip = spec.roof === 'hip', skil = spec.roof === 'skillion';
     const faces = skil ? [ax ? [0, -1] : [-1, 0]] : hip ? [[0, -1], [0, 1], [-1, 0], [1, 0]] : ax ? [[0, -1], [0, 1]] : [[-1, 0], [1, 0]];
@@ -3361,9 +3378,19 @@ function houseContext(ctx) {
   groundTex = paintMask(ctx.data, ctx.proj, 1, A2);
   if (groundMat.map !== groundTex) { groundMat.map = groundTex; groundMat.needsUpdate = true; }
   groundMesh.scale.set(2 * A2, 1, 2 * A2); groundMesh.position.set(0, 0, 0);
-  buildContext(ctx.neighbors, 1, r, 0);
+  // ortofoto ČÚZK: barva země z leteckého snímku, zrno z fotek podle masky
+  if (ORTHO_U.tex.value.isCanvasTexture) ORTHO_U.tex.value.dispose();
+  if (ctx.ortho) {
+    const t = new THREE.CanvasTexture(ctx.ortho); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    ORTHO_U.tex.value = t; ORTHO_U.k.value = 1;
+    const lum = (c, k = [1, 1, 1]) => c ? c.r * k[0] * 0.2126 + c.g * k[1] * 0.7152 + c.b * k[2] * 0.0722 : 0.25;
+    ORTHO_U.detL.value.set(lum(photoAvg('asphalt')), lum(photoAvg('grass'), [0.72, 0.98, 0.5]), lum(photoAvg('pavers')));
+  } else { ORTHO_U.tex.value = new THREE.DataTexture(new Uint8Array([128, 128, 128, 0]), 1, 1); ORTHO_U.tex.value.needsUpdate = true; ORTHO_U.k.value = 0; }
+  buildContext(ctx.neighbors, 1, r, 0, ctx.hf ? { roofOf: b => neighborRoof(b, ctx.hf, ctx.sampler) } : {});
   const [x0, x1, z0, z1] = H.info.bbox;
-  plantTrees(ctx.data, ctx.proj, 1, A2, ctx.all, r, { zc: 0, corridor: (a, b, c, d) => b > x0 - 7 && a < x1 + 7 && d > z0 - 7 && c < z1 + 9 });
+  const sp = H.spawn ? H.spawn.p : V3(), keepOut = (x, z) => (x > x0 - 2.5 && x < x1 + 2.5 && z > z0 - 2.5 && z < z1 + 2.5) || Math.hypot(x - sp.x, z - sp.z) < 3.5;
+  if (ctx.hf || ctx.sampler) drawTrees(findTrees(ctx.hf, ctx.sampler, ctx.all, ctx.hf ? ctx.hf.half - 2 : A2 - 2, keepOut), r);   // skutečné stromy z výškopisu a ortofota
+  else plantTrees(ctx.data, ctx.proj, 1, A2, ctx.all, r, { zc: 0, corridor: (a, b, c, d) => b > x0 - 7 && a < x1 + 7 && d > z0 - 7 && c < z1 + 9 });
 }
 function demoContext() {
   const sq = (cx, cz, w, d) => [[[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2], [cx - w / 2, cz - d / 2]]];
@@ -3393,6 +3420,7 @@ function houseFromOSM(data, center) {
   }
   if (!target) throw userErr('Na vybraném místě není žádný dům. Klikni přímo na budovu.');
   const t = target.b.tags, ring = target.rings[0];
+  const llr = target.b.rings[0], targetLL = [llr.reduce((a, p) => a + p[0], 0) / llr.length, llr.reduce((a, p) => a + p[1], 0) / llr.length];
   let C = 0, Sn = 0;
   for (let i = 1; i < ring.length; i++) { const dx = ring[i][0] - ring[i - 1][0], dz = ring[i][1] - ring[i - 1][1], L = Math.hypot(dx, dz), a = Math.atan2(dz, dx) * 4; C += L * Math.cos(a); Sn += L * Math.sin(a); }
   // natočení podle hlavních hran, pak o čtvrtotáčky tak, aby čelo (k nejbližší silnici) mířilo na +z, ke slunci
@@ -3417,7 +3445,8 @@ function houseFromOSM(data, center) {
   const proj = ll => rot(proj0(ll));
   const poly = target.rings.map(rr => rr.map(rot));
   let crop = null; const w = x1 - x0, d = z1 - z0;
-  if (w > 20 || d > 16) { const [px, pz] = rot([0, 0]); const cx = clamp(px, -w / 2 + 10, w / 2 - 10), cz = clamp(pz, -d / 2 + 8, d / 2 - 8); crop = [w > 20 ? cx - 10 : -w / 2 - 1, w > 20 ? cx + 10 : w / 2 + 1, d > 16 ? cz - 8 : -d / 2 - 1, d > 16 ? cz + 8 : d / 2 + 1]; }
+  // velká budova: bouratelný výřez u čela (k ulici, +z), ať je čelní zeď skutečná a hráč začíná venku
+  if (w > 20 || d > 16) { const [px] = rot([0, 0]); const cx = clamp(px, -w / 2 + 10, w / 2 - 10); crop = [w > 20 ? cx - 10 : -w / 2 - 1, w > 20 ? cx + 10 : w / 2 + 1, d > 16 ? d / 2 - 16 : -d / 2 - 1, d / 2 + 1]; }
   let floors = floorsOf(t); const cut = floors > 4; floors = Math.min(floors, 4);
   const rs = t['roof:shape'];
   const roof = rs ? (rs === 'flat' ? 'flat' : rs === 'skillion' || rs === 'lean_to' ? 'skillion' : ['hipped', 'pyramidal', 'half-hipped', 'mansard', 'dome', 'quadruple_saltbox', 'side_hipped'].includes(rs) ? 'hip' : 'gable') : roofOf(t, floors) === 'flat' ? 'flat' : 'gable';
@@ -3438,11 +3467,382 @@ function houseFromOSM(data, center) {
     if (Math.max(Math.abs(bx0 + bx1), Math.abs(bz0 + bz1)) / 2 < 135 && neighbors.length < 700) neighbors.push({ tags: b.tags, rings, floors: floorsOf(b.tags) });
   }
   all.push({ rings: poly, box: [-w / 2, w / 2, -d / 2, d / 2] });
+  if (crop) for (const part of cropRest(poly[0], crop)) neighbors.push({ tags: t, rings: [part], floors: Math.min(floorsOf(t), 9) });
   return {
     spec: { name, poly, crop, floors, roof, pitch: ang > 5 && ang < 70 ? ang : roof === 'hip' ? 32 : roof === 'skillion' ? 15 : 38, ridge: t['roof:orientation'] === 'across' ? 'short' : 'long',
       facade, roofCol, frames: 0xf2f0eb, plinth: 0x8e8a84, front, seed, cut, osm: true },
-    ctx: { data, proj, neighbors, all },
+    ctx: { data, proj, neighbors, all, c0, targetLL, inv: invProj(proj, c0) },
   };
+}
+// zbytek půdorysu mimo výřez (4 pásy kolem obdélníku), ořez Sutherland–Hodgman po polorovinách
+function cropRest(ring, [cx0, cx1, cz0, cz1]) {
+  const clip = (pts, ax, sg, v) => {
+    const out = [], inn = p => sg * (p[ax] - v) >= 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      if (inn(a)) out.push(a);
+      if (inn(a) !== inn(b)) { const t = (v - a[ax]) / (b[ax] - a[ax]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+    }
+    return out;
+  };
+  const e = 0.06, base = ring.slice(0, ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? -1 : undefined);
+  const regions = [[[0, -1, cx0 - e]], [[0, 1, cx1 + e]], [[0, 1, cx0 - e], [0, -1, cx1 + e], [1, -1, cz0 - e]], [[0, 1, cx0 - e], [0, -1, cx1 + e], [1, 1, cz1 + e]]];
+  const parts = [];
+  for (const reg of regions) { let p = base; for (const [ax, sg, v] of reg) { p = clip(p, ax, sg, v); if (p.length < 3) break; } if (p.length >= 3) parts.push([...p, p[0]]); }
+  return parts;
+}
+// proj je v lat/lon afinní (lineární měřítka + otočení), takže inverze je přesná
+function invProj(proj, c0) {
+  const p0 = proj(c0), pa = proj([c0[0] + 1e-3, c0[1]]), pb = proj([c0[0], c0[1] + 1e-3]);
+  const ax = (pa[0] - p0[0]) / 1e-3, az = (pa[1] - p0[1]) / 1e-3, bx = (pb[0] - p0[0]) / 1e-3, bz = (pb[1] - p0[1]) / 1e-3, det = ax * bz - az * bx;
+  return (x, z) => { const dx = x - p0[0], dz = z - p0[1]; return [c0[0] + (dx * bz - dz * bx) / det, c0[1] + (ax * dz - az * dx) / det]; };
+}
+
+// ---------- česká státní data ČÚZK: ortofoto, registr budov RÚIAN, výškopis DMP 1G − DMR 5G ----------
+// Otevřená data (CC BY 4.0). Služby posílají CORS hlavičky, takže jdou číst přímo z prohlížeče, jen ne ze sandboxu artefaktu.
+const CUZK = 'https://ags.cuzk.gov.cz';
+const inCZ = ([la, lo]) => la > 48.5 && la < 51.1 && lo > 12 && lo < 18.9;
+const R_EARTH = 6378137;
+const llMerc = ([la, lo]) => [lo * Math.PI / 180 * R_EARTH, Math.log(Math.tan(Math.PI / 4 + la * Math.PI / 360)) * R_EARTH];
+// číselníky RÚIAN (CE_DRUH_KONSTRUKCE, CE_ZPUSOB_VYUZITI_OBJEKTU ze services.cuzk.cz)
+const KONSTRUKCE = { 1: 'brick', 10: 'brick', 2: 'stone', 3: 'stone', 4: 'panel', 41: 'panel', 43: 'panel', 11: 'monolit', 5: 'adobe', 6: 'wood', 42: 'wood', 61: 'wood', 62: 'wood', 63: 'wood', 64: 'wood', 65: 'wood', 66: 'wood' };
+const VYUZITI = { 2: 'zemědělská usedlost', 6: 'bytový dům', 7: 'rodinný dům', 8: 'chata', 10: 'obchod', 11: 'ubytovna', 12: 'sklad', 14: 'kanceláře', 15: 'občanská vybavenost', 18: 'garáž', 20: 'víceúčelová stavba' };
+const CORE = {
+  brick: { c: 'brick', h: 2, d: 1.8, name: 'zděný' },
+  stone: { c: 'concrete', cc: 0x9c958a, h: 3, d: 2.5, name: 'kamenný' },
+  panel: { c: 'concrete', h: 3, d: 2.4, name: 'panelový' },
+  monolit: { c: 'concrete', h: 3, d: 2.4, name: 'monolitický' },
+  adobe: { c: 'brick', cc: 0xc9a47c, h: 1, d: 1.6, name: 'z nepálených cihel' },
+  wood: { c: 'timber', h: 1, d: 0.6, name: 'dřevostavba' },
+};
+async function getRes(url, kind, ms = 20000) {
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
+  try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return kind === 'json' ? await r.json() : await r.arrayBuffer(); }
+  finally { clearTimeout(t); }
+}
+function getImg(url, ms = 15000) {
+  return new Promise(res => {
+    const img = new Image(), t = setTimeout(() => res(null), ms);
+    img.crossOrigin = 'anonymous'; img.onload = () => { clearTimeout(t); res(img); }; img.onerror = () => { clearTimeout(t); res(null); }; img.src = url;
+  });
+}
+const _avgCache = {};
+function photoAvg(name) {   // průměrná barva fotografické textury (lineárně), až po načtení
+  if (_avgCache[name]) return _avgCache[name];
+  const img = TEX[name]?.image; if (!img || !img.naturalWidth) return null;
+  const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 16, 16);
+  const d = g.getImageData(0, 0, 16, 16).data; let r = 0, gg = 0, b = 0;
+  for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+  const n = d.length / 4; return (_avgCache[name] = new THREE.Color().setRGB(r / n / 255, gg / n / 255, b / n / 255, THREE.SRGBColorSpace));
+}
+// cílová barva krytiny → tónování textury tašek (textura má vlastní barvu, výsledek má odpovídat vzorníku i ortofotu)
+function roofTint(hex, name = 'rooftiles') {
+  const a = photoAvg(name) || new THREE.Color().setRGB(0.56, 0.3, 0.24, THREE.SRGBColorSpace), c = new THREE.Color(hex);
+  return c.setRGB(Math.min(3, c.r / Math.max(a.r, 0.02)), Math.min(3, c.g / Math.max(a.g, 0.02)), Math.min(3, c.b / Math.max(a.b, 0.02)));
+}
+function edgeDist(x, z, rings) {
+  let best = Infinity;
+  for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [ax, az] = r[j], [bx, bz] = r[i], dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    const u = clamp(((x - ax) * dx + (z - az) * dz) / L2, 0, 1); best = Math.min(best, Math.hypot(ax + dx * u - x, az + dz * u - z));
+  }
+  return best;
+}
+function domAngle(ring) {   // hlavní směr hran (úhel ×4, ať se pravé úhly sečtou)
+  let C = 0, Sn = 0;
+  for (let i = 1; i < ring.length; i++) { const dx = ring[i][0] - ring[i - 1][0], dz = ring[i][1] - ring[i - 1][1], L = Math.hypot(dx, dz), a = Math.atan2(dz, dx) * 4; C += L * Math.cos(a); Sn += L * Math.sin(a); }
+  return Math.atan2(Sn, C) / 4;
+}
+async function ruianAt([la, lo]) {
+  const q = `${CUZK}/arcgis/rest/services/RUIAN/Prohlizeci_sluzba_nad_daty_RUIAN/MapServer/3/query?geometry=${lo},${la}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=cisladomovni,zpusobvyuzitikod,druhkonstrukcekod,pocetpodlazi,pocetbytu,zastavenaplocha&returnGeometry=false&f=json`;
+  let d = await getRes(q, 'json', 12000);
+  if (!d.features?.length) d = await getRes(q + '&distance=8&units=esriSRUnit_Meter', 'json', 12000);
+  return d.features?.[0]?.attributes || null;
+}
+// výška nad terénem (DMP − DMR) ve čtverci ±half kolem domu, 1 m na pixel (služba má 2m rastr, zbytek dopočítá bilineárně)
+async function heightField(ctx, half) {
+  const cs = [[-half, -half], [half, -half], [-half, half], [half, half]].map(([x, z]) => llMerc(ctx.inv(x, z)));
+  const minx = Math.min(...cs.map(c => c[0])), maxx = Math.max(...cs.map(c => c[0])), miny = Math.min(...cs.map(c => c[1])), maxy = Math.max(...cs.map(c => c[1]));
+  const k = Math.cos(ctx.c0[0] * Math.PI / 180), W = Math.min(420, Math.ceil((maxx - minx) * k)), Hh = Math.min(420, Math.ceil((maxy - miny) * k));
+  const q = `exportImage?bbox=${minx},${miny},${maxx},${maxy}&bboxSR=3857&imageSR=3857&size=${W},${Hh}&format=bip&pixelType=F32&noData=-9999&interpolation=RSP_BilinearInterpolation&f=image`;
+  const [a, b] = await Promise.all(['dmp1g', 'dmr5g'].map(s => getRes(`${CUZK}/arcgis2/rest/services/${s}/ImageServer/${q}`, 'buf', 25000)));
+  if (a.byteLength < W * Hh * 4 || b.byteLength < W * Hh * 4) throw new Error('výškopis: krátká data');
+  const s = new Float32Array(a, 0, W * Hh), t = new Float32Array(b, 0, W * Hh), nd = new Float32Array(W * Hh);
+  let any = 0;
+  for (let i = 0; i < nd.length; i++) { nd[i] = s[i] < -1000 || t[i] < -1000 ? 0 : Math.max(0, s[i] - t[i]); if (nd[i] > 2) any++; }
+  if (!any) throw new Error('výškopis: prázdný');
+  const g = (i, j) => nd[clamp(i, 0, W - 1) + W * clamp(j, 0, Hh - 1)];
+  return {
+    half,
+    at(x, z) {
+      const [mx, my] = llMerc(ctx.inv(x, z)), px = (mx - minx) / (maxx - minx) * W - 0.5, py = (maxy - my) / (maxy - miny) * Hh - 0.5;
+      const i0 = Math.floor(px), j0 = Math.floor(py), fx = px - i0, fy = py - j0;
+      return (g(i0, j0) * (1 - fx) + g(i0 + 1, j0) * fx) * (1 - fy) + (g(i0, j0 + 1) * (1 - fx) + g(i0 + 1, j0 + 1) * fx) * fy;
+    },
+  };
+}
+// tvar střechy z výšek: plochá / sedlová (hřeben podél u nebo v) / valbová, lineární regrese výšky na vzdálenost od okraje
+function fitRoofField(rings, hf, fr, crop) {
+  fr = fr || { cs: 1, sn: 0, cx: 0, cz: 0 };
+  const toW = (u, v) => [fr.cx + u * fr.cs - v * fr.sn, fr.cz + u * fr.sn + v * fr.cs];
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const [x, z] of rings[0]) { const u = (x - fr.cx) * fr.cs + (z - fr.cz) * fr.sn, v = -(x - fr.cx) * fr.sn + (z - fr.cz) * fr.cs; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  if (crop) { u0 = Math.max(u0, crop[0]); u1 = Math.min(u1, crop[1]); v0 = Math.max(v0, crop[2]); v1 = Math.min(v1, crop[3]); }
+  const S = [];
+  for (let u = u0 + 0.25; u < u1; u += 0.5) for (let v = v0 + 0.25; v < v1; v += 0.5) {
+    const [x, z] = toW(u, v); if (!inPoly(x, z, rings) || edgeDist(x, z, rings) < 0.9) continue;
+    S.push([u, v, hf.at(x, z)]);
+  }
+  if (S.length < 6) return null;
+  const n = S.length, hs = S.map(s => s[2]), mean = hs.reduce((a, b) => a + b, 0) / n, top = hs.slice().sort((a, b) => a - b)[Math.floor(n * 0.95)];
+  if (top < 1.8) return null;
+  const rssF = hs.reduce((a, h) => a + (h - mean) ** 2, 0);
+  const models = { gableU: (u, v) => Math.min(v - v0, v1 - v), gableV: u => Math.min(u - u0, u1 - u), hip: (u, v) => Math.min(v - v0, v1 - v, u - u0, u1 - u) };
+  let best = null;
+  for (const [type, f] of Object.entries(models)) {
+    let sd = 0, sh = 0, sdd = 0, sdh = 0;
+    for (const [u, v, h] of S) { const d = f(u, v); sd += d; sh += h; sdd += d * d; sdh += d * h; }
+    const den = n * sdd - sd * sd; if (Math.abs(den) < 1e-6) continue;
+    const b = (n * sdh - sd * sh) / den, a = (sh - b * sd) / n;
+    let rss = 0; for (const [u, v, h] of S) rss += (h - a - b * f(u, v)) ** 2;
+    const score = type === 'hip' ? rss / 0.85 : rss;
+    if (!best || score < best.score) best = { type, a, b, rss, score };
+  }
+  const box = [u0, u1, v0, v1];
+  if (!best || best.b < 0.16 || rssF < best.rss * 1.3) return { type: 'flat', a: mean, b: 0, mean, top, n, box };
+  return { ...best, mean, top, n, box };
+}
+// ortofoto do plátna v souřadnicích domu (svět je natočený, dlaždice se kreslí afinní transformací po rozích)
+async function orthoCanvas(ctx, A2, N, prog) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const g = cv.getContext('2d'); g.fillStyle = '#6f7a5a'; g.fillRect(0, 0, N, N);
+  const toCv = (la, lo) => { const [x, z] = ctx.proj([la, lo]); return [(x + A2) / (2 * A2) * N, (z + A2) / (2 * A2) * N]; };
+  const tLon = (x, z) => x / 2 ** z * 360 - 180, tLat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z))) * 180 / Math.PI;
+  const tileOf = ([la, lo], z) => [Math.floor((lo + 180) / 360 * 2 ** z), Math.floor((1 - Math.log(Math.tan(la * Math.PI / 180) + 1 / Math.cos(la * Math.PI / 180)) / Math.PI) / 2 * 2 ** z)];
+  const jobs = [];
+  for (const [z, half] of [[18, A2], [20, 62]]) {
+    const cs = [[-half, -half], [half, -half], [-half, half], [half, half]].map(([x, zz]) => tileOf(ctx.inv(x, zz), z));
+    for (let y = Math.min(...cs.map(c => c[1])); y <= Math.max(...cs.map(c => c[1])); y++) for (let x = Math.min(...cs.map(c => c[0])); x <= Math.max(...cs.map(c => c[0])); x++) jobs.push([z, x, y]);
+  }
+  jobs.length = Math.min(jobs.length, 140);
+  const imgs = new Array(jobs.length); let next = 0, done = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (next < jobs.length) { const k = next++, [z, x, y] = jobs[k]; imgs[k] = await getImg(`${CUZK}/arcgis1/rest/services/ORTOFOTO_WM/MapServer/tile/${z}/${y}/${x}`); done++; if (prog) prog(done, jobs.length); }
+  }));
+  let ok = 0;
+  jobs.forEach(([z, x, y], k) => {
+    const img = imgs[k]; if (!img) return; ok++;
+    const p00 = toCv(tLat(y, z), tLon(x, z)), p10 = toCv(tLat(y, z), tLon(x + 1, z)), p01 = toCv(tLat(y + 1, z), tLon(x, z));
+    g.setTransform((p10[0] - p00[0]) / 256, (p10[1] - p00[1]) / 256, (p01[0] - p00[0]) / 256, (p01[1] - p00[1]) / 256, p00[0], p00[1]);
+    g.drawImage(img, -0.3, -0.3, 256.6, 256.6);   // přesah proti vlasovým spárám mezi dlaždicemi
+  });
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  return ok >= jobs.length * 0.5 ? cv : null;
+}
+function makeSampler(cv, A2) {
+  const M = 1024, c = document.createElement('canvas'); c.width = c.height = M;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(cv, 0, 0, M, M);
+  const d = g.getImageData(0, 0, M, M).data, k = M / (2 * A2);
+  const at = (x, z) => { const o = (clamp(Math.floor((x + A2) * k), 0, M - 1) + M * clamp(Math.floor((z + A2) * k), 0, M - 1)) * 4; return [d[o], d[o + 1], d[o + 2]]; };
+  return {
+    at, d, M, k, A2,
+    median(rings, inset) {   // medián barvy uvnitř půdorysu (kousek od okraje, ortofoto střechu trochu posouvá)
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const [x, z] of rings[0]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      const st = Math.max(0.27, Math.max(x1 - x0, z1 - z0) / 28), R = [], Gc = [], B = [];
+      for (let x = x0 + st / 2; x < x1; x += st) for (let z = z0 + st / 2; z < z1; z += st) {
+        if (!inPoly(x, z, rings) || edgeDist(x, z, rings) < inset) continue;
+        const p = at(x, z); R.push(p[0]); Gc.push(p[1]); B.push(p[2]);
+      }
+      if (R.length < 5) return null;
+      const med = a => a.sort((p, q) => p - q)[a.length >> 1] / 255;
+      return new THREE.Color().setRGB(Math.min(1, med(R) * 1.06), Math.min(1, med(Gc) * 1.06), Math.min(1, med(B) * 1.06), THREE.SRGBColorSpace);
+    },
+  };
+}
+// barva z ortofota je nasvícená sluncem a hra ji nasvítí znovu: ztmavit a vrátit sytost, ať vyjde vlastní barva krytiny
+function albedo(c) { const h = {}; c.getHSL(h); return c.clone().setHSL(h.h, h.s > 0.25 ? Math.min(1, h.s * 1.25) : h.s * 0.8, h.l * 0.74); }   // šedé (eternit, plech) nezabarvovat
+// pod budovami (a metr kolem, ortofoto je mírně nakloněné) ortofoto vypustit, zem tam dokreslí maska
+function punchBuildings(cv, all, A2) {
+  const g = cv.getContext('2d'), k = cv.width / (2 * A2);
+  g.save(); g.globalCompositeOperation = 'destination-out'; g.lineJoin = 'round'; g.lineWidth = 2 * k;
+  for (const b of all) { g.beginPath(); for (const ring of b.rings) ring.forEach(([x, z], i) => { const px = (x + A2) * k, pz = (z + A2) * k; if (i) g.lineTo(px, pz); else g.moveTo(px, pz); }); g.closePath(); g.fill('evenodd'); g.stroke(); }
+  g.restore();
+}
+// stromy: z výškopisu (vysoké, mimo budovy, zelené na ortofotu) a z ortofota (tmavě zelené a zrnité koruny; trávník je hladký)
+function findTrees(hf, sampler, all, A, keepOut) {
+  const pts = hf ? treesFromHeights(hf, sampler, all, A) : [];
+  if (!sampler) return pts;
+  const S = Math.round(2 * A), { d, M, k, A2 } = sampler, cpx = k;   // px na metr
+  const mask = buildingMask(all, A, S);
+  const sc = new Float32Array(S * S);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    if (mask[(i + S * j) * 4] > 0) continue;
+    const x0 = Math.floor((i - A + A2) * cpx), y0 = Math.floor((j - A + A2) * cpx), n = Math.max(1, Math.round(cpx));
+    let sl = 0, sll = 0, se = 0, c = 0;
+    for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) {
+      if (x < 0 || y < 0 || x >= M || y >= M) continue;
+      const o = (x + M * y) * 4, l = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
+      sl += l; sll += l * l; se += 2 * d[o + 1] - d[o] - d[o + 2]; c++;
+    }
+    if (!c) continue;
+    const L = sl / c, E = se / c, T = Math.sqrt(Math.max(0, sll / c - L * L));
+    sc[i + S * j] = Math.max(0, E - 8) * clamp((150 - L) / 90, 0, 1) * clamp((T - 6) / 12, 0, 1);
+  }
+  // rozmazání 3×3 dvakrát (≈ Gauss 1 m), pak lokální maxima v okně 7 m
+  const tmp = new Float32Array(S * S);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let j = 1; j < S - 1; j++) for (let i = 1; i < S - 1; i++) { let a = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) a += sc[i + di + S * (j + dj)]; tmp[i + S * j] = a / 9; }
+    sc.set(tmp);
+  }
+  const cand = [];
+  for (let j = 3; j < S - 3; j++) for (let i = 3; i < S - 3; i++) {
+    const v = sc[i + S * j]; if (v < 7.5) continue;
+    let mx = true;
+    for (let dj = -3; dj <= 3 && mx; dj++) for (let di = -3; di <= 3; di++) if (sc[i + di + S * (j + dj)] > v) { mx = false; break; }
+    if (mx) cand.push([i + 0.5 - A, j + 0.5 - A, v]);
+  }
+  cand.sort((a, b) => b[2] - a[2]);
+  for (const [x, z, v] of cand) {
+    if (pts.length >= 640) break;
+    if (keepOut && keepOut(x, z)) continue;
+    if (pts.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 14)) continue;
+    const h = hf ? hf.at(x, z) : 0;
+    pts.push([x, z, h > 3 ? Math.min(26, h * 1.05) : 4.5 + Math.min(1, v / 40) * 5 + Math.random() * 1.5]);
+  }
+  return pts;
+}
+function buildingMask(all, A, S) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.fillStyle = g.strokeStyle = '#fff'; g.lineWidth = 3; g.lineJoin = 'round';
+  const k = S / (2 * A);
+  for (const b of all) { g.beginPath(); for (const ring of b.rings) ring.forEach(([x, z], i) => { if (i) g.lineTo((x + A) * k, (z + A) * k); else g.moveTo((x + A) * k, (z + A) * k); }); g.closePath(); g.fill('evenodd'); g.stroke(); }
+  return g.getImageData(0, 0, S, S).data;
+}
+function treesFromHeights(hf, sampler, all, A) {
+  const N = Math.round(2 * A), m = buildingMask(all, A, N), Hh = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) Hh[i + N * j] = m[(i + N * j) * 4] > 0 ? 0 : hf.at(i + 0.5 - A, j + 0.5 - A);
+  const cand = [];
+  for (let j = 2; j < N - 2; j++) for (let i = 2; i < N - 2; i++) {
+    const h = Hh[i + N * j]; if (h < 3) continue;
+    let mx = true;
+    for (let dj = -2; dj <= 2 && mx; dj++) for (let di = -2; di <= 2; di++) if ((di || dj) && Hh[i + di + N * (j + dj)] > h) { mx = false; break; }
+    if (mx) cand.push([i + 0.5 - A, j + 0.5 - A, h]);
+  }
+  cand.sort((a, b) => b[2] - a[2]);
+  const pts = []; H.treeStats = { cand: cand.length, notGreen: 0 };
+  for (const c of cand) {
+    if (pts.length >= 420) break;
+    if (sampler) { const [r, gg, b] = sampler.at(c[0], c[1]); if (2 * gg - r - b < 6) { H.treeStats.notGreen++; continue; } }
+    if (pts.some(p => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 < 12)) continue;
+    pts.push([c[0], c[1], Math.min(28, c[2] * 1.05)]);
+  }
+  return pts;
+}
+// šikmá střecha okolního domu: hranol nad natočeným obdélníkem (+ štíty do zdí)
+function pitchedRoofGeo(fr, box, type, e, t, col) {
+  const [u0, u1, v0, v1] = box, ov = 0.35, R = [], G = [];
+  const W = ([u, v, y]) => new THREE.Vector3(fr.cx + u * fr.cs - v * fr.sn, y, fr.cz + u * fr.sn + v * fr.cs);
+  const cen = W([(u0 + u1) / 2, (v0 + v1) / 2, e]);
+  const tri = (out, a, b, c, up) => {
+    const A = W(a), B = W(b), Cc = W(c), n = new THREE.Vector3().subVectors(B, A).cross(new THREE.Vector3().subVectors(Cc, A)).normalize();
+    const flip = up ? n.y < 0 : n.dot(_v.copy(A).add(B).add(Cc).multiplyScalar(1 / 3).sub(cen)) < 0;
+    if (flip) n.negate();
+    for (const p of flip ? [A, Cc, B] : [A, B, Cc]) out.push([p, n]);
+  };
+  const quad = (out, a, b, c, d) => { tri(out, a, b, c, true); tri(out, a, c, d, true); };
+  const ee = e - t * ov;
+  const ridgeU = type === 'gableU' || (type === 'hip' && u1 - u0 >= v1 - v0);
+  if (type === 'hip') {
+    if (ridgeU) {
+      const hv = (v1 - v0) / 2, vm = (v0 + v1) / 2, hr = e + t * hv;
+      quad(R, [u0 - ov, v0 - ov, ee], [u1 + ov, v0 - ov, ee], [u1 - hv, vm, hr], [u0 + hv, vm, hr]);
+      quad(R, [u0 - ov, v1 + ov, ee], [u1 + ov, v1 + ov, ee], [u1 - hv, vm, hr], [u0 + hv, vm, hr]);
+      tri(R, [u0 - ov, v0 - ov, ee], [u0 - ov, v1 + ov, ee], [u0 + hv, vm, hr], true);
+      tri(R, [u1 + ov, v0 - ov, ee], [u1 + ov, v1 + ov, ee], [u1 - hv, vm, hr], true);
+    } else {
+      const hu = (u1 - u0) / 2, um = (u0 + u1) / 2, hr = e + t * hu;
+      quad(R, [u0 - ov, v0 - ov, ee], [u0 - ov, v1 + ov, ee], [um, v1 - hu, hr], [um, v0 + hu, hr]);
+      quad(R, [u1 + ov, v0 - ov, ee], [u1 + ov, v1 + ov, ee], [um, v1 - hu, hr], [um, v0 + hu, hr]);
+      tri(R, [u0 - ov, v0 - ov, ee], [u1 + ov, v0 - ov, ee], [um, v0 + hu, hr], true);
+      tri(R, [u0 - ov, v1 + ov, ee], [u1 + ov, v1 + ov, ee], [um, v1 - hu, hr], true);
+    }
+  } else if (ridgeU) {
+    const hv = (v1 - v0) / 2, vm = (v0 + v1) / 2, hr = e + t * hv;
+    quad(R, [u0 - ov, v0 - ov, ee], [u1 + ov, v0 - ov, ee], [u1 + ov, vm, hr], [u0 - ov, vm, hr]);
+    quad(R, [u0 - ov, v1 + ov, ee], [u1 + ov, v1 + ov, ee], [u1 + ov, vm, hr], [u0 - ov, vm, hr]);
+    tri(G, [u0, v0, e], [u0, v1, e], [u0, vm, hr], false); tri(G, [u1, v0, e], [u1, v1, e], [u1, vm, hr], false);
+  } else {
+    const hu = (u1 - u0) / 2, um = (u0 + u1) / 2, hr = e + t * hu;
+    quad(R, [u0 - ov, v0 - ov, ee], [u0 - ov, v1 + ov, ee], [um, v1 + ov, hr], [um, v0 - ov, hr]);
+    quad(R, [u1 + ov, v0 - ov, ee], [u1 + ov, v1 + ov, ee], [um, v1 + ov, hr], [um, v0 - ov, hr]);
+    tri(G, [u0, v0, e], [u1, v0, e], [um, v0, hr], false); tri(G, [u0, v1, e], [u1, v1, e], [um, v1, hr], false);
+  }
+  const mk = (list, c) => {
+    if (!list.length) return null;
+    const g = new THREE.BufferGeometry(), P = [], Nn = [], Cc = [];
+    for (const [p, n] of list) { P.push(p.x, p.y, p.z); Nn.push(n.x, n.y, n.z); if (c) Cc.push(c.r, c.g, c.b); }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(list.length * 2).fill(0), 2));
+    if (c) g.setAttribute('color', new THREE.Float32BufferAttribute(Cc, 3));
+    return g;
+  };
+  return { roof: mk(R, col), gables: mk(G, null) };
+}
+function neighborRoof(b, hf, sampler) {
+  const ring = b.rings[0];
+  let cx = 0, cz = 0; for (const [x, z] of ring) { cx += x; cz += z; } cx /= ring.length; cz /= ring.length;
+  const th = domAngle(ring), fr = { cs: Math.cos(th), sn: Math.sin(th), cx, cz };
+  const fit = fitRoofField(b.rings, hf, fr, null);
+  if (!fit) return null;
+  const [u0, u1, v0, v1] = fit.box;
+  let area = 0; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) area += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]) / 2;
+  const fill = Math.abs(area) / Math.max(1, (u1 - u0) * (v1 - v0)), med = sampler ? sampler.median(b.rings, 0.8) : null, col = med && albedo(med);
+  if (fit.type === 'flat' || fill < 0.8 || Math.min(u1 - u0, v1 - v0) < 3) return { h: Math.max(2.4, fit.mean), capCol: col && roofTint(col.getHex(), 'flatroof') };
+  const e = Math.max(2.2, fit.a), t = clamp(fit.b, Math.tan(0.26), Math.tan(0.96));
+  return { h: e, geo: pitchedRoofGeo(fr, fit.box, fit.type, e, t, col ? roofTint(col.getHex()) : roofTint(0x8a4a38)) };
+}
+// vše dohromady: dotáhne data a upraví zadání domu i kontext okolí
+async function enrichCZ(spec, ctx, msg) {
+  const A2 = 140, notes = [];
+  msg('Stahuju údaje o domě z ČÚZK…');
+  const [ru, hf, ortho] = await Promise.allSettled([
+    ruianAt(ctx.targetLL),
+    heightField(ctx, 120),
+    orthoCanvas(ctx, A2, 4096, (n, t) => msg(`Stahuju ortofoto ČÚZK… ${n} / ${t}`)),
+  ]);
+  spec.cz = { ruian: false, heights: false, ortho: false };
+  if (ru.status === 'fulfilled' && ru.value) {
+    const a = ru.value; spec.cz.ruian = true;
+    spec.core = KONSTRUKCE[a.druhkonstrukcekod] || 'brick';
+    const use = VYUZITI[a.zpusobvyuzitikod];
+    if (a.cisladomovni && (spec.name === 'Tvůj dům' || spec.name.startsWith('č. p.'))) spec.name = `${use ? use[0].toUpperCase() + use.slice(1) : 'Dům'} č. p. ${a.cisladomovni}`;
+    if (a.pocetpodlazi > 0) spec.floors = clamp(a.pocetpodlazi, 1, 4);
+    notes.push(`${use || 'budova'}${KONSTRUKCE[a.druhkonstrukcekod] ? ', ' + CORE[spec.core].name : ''}${a.pocetpodlazi ? `, ${a.pocetpodlazi} ${a.pocetpodlazi === 1 ? 'podlaží' : 'podlaží'} v registru` : ''}`);
+  }
+  if (hf.status === 'fulfilled') {
+    ctx.hf = hf.value; spec.cz.heights = true;
+    const fit = fitRoofField(spec.poly, hf.value, null, spec.crop);
+    if (fit) {
+      const [x0, x1, z0, z1] = fit.box, xLong = x1 - x0 >= z1 - z0;
+      if (fit.type === 'flat') { spec.roof = 'flat'; spec.floors = clamp(Math.round((fit.mean - 0.9) / 3), 1, 4); notes.push(`plochá střecha ve výšce ${fit.mean.toFixed(1).replace('.', ',')} m`); }
+      else {
+        spec.roof = fit.type === 'hip' ? 'hip' : 'gable';
+        spec.pitch = clamp(Math.round(Math.atan(fit.b) * 180 / Math.PI), 15, 55);
+        if (fit.type === 'gableU') spec.ridge = xLong ? 'long' : 'short'; else if (fit.type === 'gableV') spec.ridge = xLong ? 'short' : 'long';
+        spec.floors = clamp(Math.round((fit.a - FLOOR0 * VS - KNEE) / 3), 1, 4);
+        notes.push(`${spec.roof === 'hip' ? 'valbová' : 'sedlová'} střecha ${spec.pitch}°, hřeben ${fit.top.toFixed(1).replace('.', ',')} m nad zemí`);
+      }
+    }
+  }
+  if (ortho.status === 'fulfilled' && ortho.value) {
+    spec.cz.ortho = true; ctx.sampler = makeSampler(ortho.value, A2);
+    const c = ctx.sampler.median(spec.poly, 1.0);
+    if (c && spec.roof !== 'flat') spec.roofCol = albedo(c).getHex();
+    punchBuildings(ortho.value, ctx.all, A2); ctx.ortho = ortho.value;
+    notes.push('zem, stromy a barva střechy z ortofota');
+  }
+  if (notes.length) spec.czNote = `Podle ČÚZK: ${notes.join('; ')}. Půdorys z OpenStreetMap. Co nesedí, oprav níž.`;
 }
 
 // ---------- hráč: chůze z první osoby po voxelech ----------
@@ -3798,6 +4198,7 @@ function houseEnter() {
   key.shadow.normalBias = 0.02; key.shadow.bias = -0.00015; key.shadow.radius = 2;
   gtao.updateGtaoMaterial({ radius: 0.4, thickness: 1.0, scale: 1.0 });
   bloom.threshold = 4; bloom.strength = 0.25;
+  renderer.toneMapping = THREE.NeutralToneMapping;   // AgX vybledí teplé taškové střechy do lososova (blender/22), Neutral drží odstín
   $('hud').hidden = true; $('cardPlace').hidden = true; $('cardEnd').hidden = true; $('cardTitle').hidden = true; $('cardPause').hidden = true;
 }
 function houseLeave() {
@@ -3838,7 +4239,7 @@ function housePlay(fresh) {
   housePhysics();
   H.state = 'play'; S.state = 'house'; H.cool = 0; H.hold = false; H.t0 = clock; H.used = { charges: 0, balls: 0 }; H.hudT = 0; H.ignoreUnlock = false;
   renderTools(); renderFly();
-  $('hName').textContent = H.spec.name; $('hAttr').hidden = !H.spec.osm; $('hEngine').textContent = 'fyzika ' + phys.name;
+  $('hName').textContent = H.spec.name; $('hAttr').hidden = !H.spec.osm; $('hCz').hidden = !H.spec.cz; $('hEngine').textContent = 'fyzika ' + phys.name;
   $('hPct').textContent = '0'; $('hBar').style.width = '0%';
   canvas.focus();
   requestLock();
@@ -3904,7 +4305,7 @@ function setupEditor() {
 function syncEditor() {
   const s = H.spec;
   $('edName').textContent = s.name;
-  $('edSrc').textContent = s.osm ? `Půdorys a počet pater jsou z OpenStreetMap${s.cut ? ', vyšší budovu jsme ořízli na 4 patra' : ''}${s.crop ? ', velký dům jen v jedné části' : ''}. Barvy a střechu dolaď podle skutečnosti.` : 'Ukázkový rodinný dům. Svůj dům najdeš přes mapu.';
+  $('edSrc').textContent = s.czNote || (s.osm ? `Půdorys a počet pater jsou z OpenStreetMap${s.cut ? ', vyšší budovu jsme ořízli na 4 patra' : ''}${s.crop ? ', velký dům jen v jedné části' : ''}. Barvy a střechu dolaď podle skutečnosti.` : 'Ukázkový rodinný dům. Svůj dům najdeš přes mapu.');
   for (const [id, key] of [['edFacade', 'facade'], ['edRoofCol', 'roofCol'], ['edFrames', 'frames']]) for (const b of $(id).children) b.setAttribute('aria-pressed', String(+b.dataset.c === s[key]));
   for (const [id, key] of [['edFloors', 'floors'], ['edRoof', 'roof'], ['edRidge', 'ridge']]) for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v === String(s[key])));
   $('edPitch').value = s.pitch; $('edPitchV').textContent = Math.round(s.pitch) + '°';
@@ -3963,11 +4364,15 @@ function placeKind(k) {
   $('buildBtn').textContent = k === 'house' ? 'Postavit můj dům' : 'Postavit toto místo';
 }
 $('placeKind').addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b) placeKind(b.dataset.k); });
-function goPlace(P) {
+async function goPlace(P) {
   if (placeMode !== 'house') return startPlace(P);
   const { spec, ctx } = houseFromOSM(P.data, P.center);
+  if (inCZ(ctx.targetLL) && await canReachMaps()) {
+    try { await enrichCZ(spec, ctx, placeStatus); } catch (e) { console.warn('Data ČÚZK se nepodařilo načíst', e); }
+  }
   houseOpen(spec, ctx);
 }
+function placeStatus(msg) { $('mapHint').textContent = msg; if (!$('steps').hidden) $('drop').textContent = msg; }
 function restoreCampaign() { buildLevel(S.level); setLook('campaign'); S.kind = 'campaign'; cam.mode = 'title'; showAimGizmos(false); ballMesh.position.copy(SLING); ballMesh.visible = true; }
 function startTitle() { restoreCampaign(); S.state = 'title'; $('hud').hidden = true; $('ov').hidden = false; $('cardTitle').hidden = false; setTimeout(() => $('play').focus(), 50); }
 $('houseBtn').addEventListener('click', () => { Snd.init(); houseOpen(DEMO_SPEC, demoContext()); });
@@ -4087,9 +4492,11 @@ window.kaskada = {
     key(code, down) { houseKey({ code, preventDefault() {} }, down); },
     fly(on) { PL.fly = on; renderFly(); }, play() { housePlay(false); }, edit() { houseEdit(); }, end() { houseEnd(); }, pause() { housePause(); }, resume() { houseResume(); },
     spec: () => H.spec, set(k, v) { H.spec[k] = v; editChanged(); },
-    open(spec) { houseOpen(spec || DEMO_SPEC, demoContext()); }, openOSM(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, lat != null ? [lat, lon] : null); houseOpen(spec, ctx); },
+    open(spec) { houseOpen(spec || DEMO_SPEC, demoContext()); },
+    async openCZ(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, [lat, lon]); const t = performance.now(); await enrichCZ(spec, ctx, m => console.log(m)); houseOpen(spec, ctx); return { ms: Math.round(performance.now() - t), spec: { ...spec, poly: undefined }, trees: trunks.count, treeStats: H.treeStats }; }, openOSM(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, lat != null ? [lat, lon] : null); houseOpen(spec, ctx); },
     center: () => H.center.toArray(), spawn: () => H.spawn && { p: H.spawn.p.toArray(), yaw: H.spawn.yaw },
     lockFail() { lockFail(); },
+    tone(t, key) { renderer.toneMapping = t === 'agx' ? THREE.AgXToneMapping : THREE.NeutralToneMapping; if (key) window.kaskada._key = key; },
     room(k, type) {
       const i = H.info.types[k].indexOf(type); if (i < 0) return null; const rm = H.info.rooms[i];
       return { x: H.ox + ((rm.x0 + rm.x1) / 2 + 0.5) * VS, y: (FLOOR0 + STY * k) * VS, z: H.oz + ((rm.z0 + rm.z1) / 2 + 0.5) * VS, w: (rm.x1 - rm.x0 + 1) * VS, d: (rm.z1 - rm.z0 + 1) * VS };

@@ -16,6 +16,8 @@ a jedna dobrá rána spustí řetězovou reakci.
   uvnitř cihla a beton), uvnitř jsou pokoje s nábytkem, schody a hůra pod krovem. Na titulce dej
   *Bourání domu* (ukázkový dům), nebo v *Moje místo* vyber *Můj dům zblízka* a klikni na svůj dům.
   V editoru doladíš patra, střechu a barvy. Vnitřek je vymyšlený, OpenStreetMap ho nezná.
+  V Česku si hra k domu z mapy sama dotáhne data ČÚZK: ortofoto (zem kolem domu, barvy střech, stromy),
+  registr budov RÚIAN (druh konstrukce, číslo popisné) a výškopis (tvar, sklon a výška střechy, výšky sousedů).
   - `W A S D` chůze, myš rozhlížení, levé tlačítko nářadí, `1`–`5` nebo kolečko výběr nářadí
   - kladivo (omítka, cihly, dřevo), perlík (i beton), sbíječka (všechno, přesně), nálože (`E` odpálí), bourací koule
   - `F` létání (mezerník nahoru, `C` dolů), `Esc` pauza
@@ -34,5 +36,7 @@ z exportu na openstreetmap.org.
 
 - Mapa a budovy: © [přispěvatelé OpenStreetMap](https://www.openstreetmap.org/copyright), licence ODbL.
   Data se stahují až v prohlížeči hráče (Overpass API, hledání adres přes Nominatim) a nikam se neukládají.
+- Ortofoto, RÚIAN a výškopis DMP 1G / DMR 5G: © [ČÚZK](https://cuzk.gov.cz), otevřená data CC BY 4.0, stahují se
+  až v prohlížeči hráče ze služeb ags.cuzk.gov.cz.
 - Textury v `tex/`: [Poly Haven](https://polyhaven.com), CC0 (seznam v `tex/SOURCES.md`).
 - three.js (MIT), Rapier (Apache-2.0), cannon-es (MIT), Leaflet (BSD-2-Clause).
