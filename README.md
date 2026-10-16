@@ -20,7 +20,7 @@ mapa ho nezná.
 
 V Česku si hra k domu sama dotáhne data ČÚZK: ortofoto (zem kolem domu, krytina střech, stromy, slunce podle
 stínů na snímku), registr budov RÚIAN (druh konstrukce, číslo popisné) a výškopis (tvar, sklon a výška střechy,
-výšky sousedů).
+výšky sousedů, skutečný terén kolem domu až k obzoru).
 
 ## Jak to běží
 
