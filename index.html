@@ -446,6 +446,12 @@ function rapierPhysics(R) {
     remove(b) { world.removeRigidBody(b); },
     step(h) { world.timestep = h; world.step(); },
     addStaticBox(c, h) { return world.createCollider(R.ColliderDesc.cuboid(h.x, h.y, h.z).setTranslation(c.x, c.y, c.z).setFriction(0.9)); },
+    // terén: uzly g[i + j*n] (i podél x, j podél z), rozteč s, střed (cx, cz); Rapier chce matici (řádky = z) po sloupcích
+    addHeightfield(g, n, s, cx, cz) {
+      const hm = new Float32Array(n * n); for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) hm[c * n + r] = g[r * n + c];
+      world.createCollider(R.ColliderDesc.heightfield(n - 1, n - 1, hm, { x: (n - 1) * s, y: 1, z: (n - 1) * s }).setTranslation(cx, 0, cz).setFriction(0.9));
+    },
+    setPos(b, p) { b.setTranslation(p, true); },
     removeStatic(c) { world.removeCollider(c, true); },
     addCompound(boxes, p, o) {
       const d = R.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z).setLinearDamping(o.linDamp ?? 0.05).setAngularDamping(o.angDamp ?? 0.25);
@@ -486,6 +492,14 @@ function cannonPhysics(C) {
     remove(b) { world.removeBody(b); },
     step(h) { world.step(h / 2); world.step(h / 2); },   // bez CCD: dva podkroky proti protunelování koule
     addStaticBox(c, h) { const b = new C.Body({ mass: 0, shape: new C.Box(new C.Vec3(h.x, h.y, h.z)), position: new C.Vec3(c.x, c.y, c.z) }); world.addBody(b); return b; },
+    // cannon má výškové pole v rovině xy s výškou v z: otočit o −90° kolem x, lokální y pak míří na −z
+    addHeightfield(g, n, s, cx, cz) {
+      const half = (n - 1) * s / 2, data = [];
+      for (let i = 0; i < n; i++) { const col = new Array(n); for (let j = 0; j < n; j++) col[j] = g[(n - 1 - j) * n + i]; data.push(col); }
+      const b = new C.Body({ mass: 0, shape: new C.Heightfield(data, { elementSize: s }) });
+      b.position.set(cx - half, 0, cz + half); b.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(b);
+    },
+    setPos(b, p) { b.position.set(p.x, p.y, p.z); },
     removeStatic(b) { world.removeBody(b); },
     addCompound(boxes, p, o) {
       const b = new C.Body({ mass: 1, position: new C.Vec3(p.x, p.y, p.z), linearDamping: o.linDamp ?? 0.05, angularDamping: o.angDamp ?? 0.25 });
@@ -769,6 +783,21 @@ groundMesh.receiveShadow = true; groundMesh.visible = false; scene.add(groundMes
 const farGround = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), REAL.far);
 farGround.position.y = -0.04; farGround.receiveShadow = true; farGround.visible = false; scene.add(farGround);
 const ctxGroup = new THREE.Group(); ctxGroup.visible = false; scene.add(ctxGroup);
+const groundFlat = groundMesh.geometry;
+// terén z výškopisu DMR 5G: výška nad úrovní domu, dům stojí na srovnané terase. Blízká mřížka ±150 m po 1 m (chůze, fyzika, zem),
+// daleká ±700 m po 7 m (obzor). Bez dat je zem rovina y = 0.
+const TERR = { on: false, g: null, n: 301, s: 1, half: 150, fg: null, fn: 201, fs: 7, fhalf: 700, min: 0, max: 0, killY: -30, B: 0, flatR: 2.5, blendR: 12, box: null };
+const farOrthoMat = new THREE.MeshStandardMaterial({ roughness: 1 });
+const farTerr = new THREE.Mesh(new THREE.BufferGeometry(), REAL.far);
+farTerr.receiveShadow = true; farTerr.visible = false; farTerr.frustumCulled = false; ctxGroup.add(farTerr);
+function gridH(g, n, s, h, x, z) {
+  const px = clamp((x + h) / s, 0, n - 1.0001), pz = clamp((z + h) / s, 0, n - 1.0001), i = px | 0, j = pz | 0, fx = px - i, fz = pz - j, k = i + j * n;
+  return (g[k] * (1 - fx) + g[k + 1] * fx) * (1 - fz) + (g[k + n] * (1 - fx) + g[k + n + 1] * fx) * fz;
+}
+function gH(x, z) {
+  if (!TERR.on) return 0;
+  return Math.abs(x) < TERR.half && Math.abs(z) < TERR.half ? gridH(TERR.g, TERR.n, TERR.s, TERR.half, x, z) : gridH(TERR.fg, TERR.fn, TERR.fs, TERR.fhalf, x, z);
+}
 // stromy: kmen + dva chomáče koruny, nepravidelný tvar z deformované koule
 const crownGeo = (() => {
   const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, r = rng(77), off = new Map();
@@ -1838,7 +1867,7 @@ function buildPlace(P) {
   if (groundTex) groundTex.dispose();
   groundTex = paintMask(data, proj, s, A2);
   if (groundMat.map !== groundTex) { groundMat.map = groundTex; groundMat.needsUpdate = true; }
-  groundMesh.scale.set(2 * A2, 1, 2 * A2); groundMesh.position.set(0, 0, ZC);
+  terrainOff(); groundMesh.scale.set(2 * A2, 1, 2 * A2); groundMesh.position.set(0, 0, ZC);
   buildContext(ctx, s, r);
   plantTrees(data, proj, s, A2, all, r);
   built = 'place';
@@ -1889,19 +1918,24 @@ function buildContext(list, s, r, zc = ZC, o = {}) {
   for (const m of ctxMeshes) { m.geometry.dispose(); ctxGroup.remove(m); const i = aimTargets.indexOf(m); if (i >= 0) aimTargets.splice(i, 1); }
   ctxMeshes = [];
   const walls = [], roofs = [], roofsP = [], v2 = ([x, z]) => new THREE.Vector2(x * s, -(z * s + zc));
+  const baseAttr = (g, v) => g.setAttribute('aBase', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(v), 1));
   for (const b of list) {
     try {
       const info = o.roofOf ? o.roofOf(b) : null, fc = facadeOf(b.tags, r);
+      // na svahu: střecha nad průměrným terénem pod domem, zdi až pod nejnižší roh (výšky z výškopisu jsou nad terénem)
+      let base = 0, bot = 0;
+      if (o.ground) { const t = groundOf(b.rings); base = b.self ? 0 : t.mean; bot = Math.min(t.min, base) - 0.4; }
       const shape = new THREE.Shape(b.rings[0].map(v2));
       for (const hole of b.rings.slice(1)) shape.holes.push(new THREE.Path(hole.map(v2)));
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: info ? info.h * s : b.floors * 3 * s + 0.4 * s, bevelEnabled: false });
-      geo.rotateX(-Math.PI / 2);
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: (info ? info.h * s : b.floors * 3 * s + 0.4 * s) + base - bot, bevelEnabled: false });
+      geo.rotateX(-Math.PI / 2); if (bot) geo.translate(0, bot, 0);
       const [cap, side] = splitGroups(geo); geo.dispose();
       if (!cap || !side) continue;
       tint(side, fc); tint(cap, o.orthoRoof ? new THREE.Color(1, 1, 1) : info?.capCol || new THREE.Color(1, 1, 1).multiplyScalar(0.8 + r() * 0.2));
+      baseAttr(side, base); baseAttr(cap, base);
       walls.push(side); roofs.push(cap);
-      if (info?.geo?.roof) roofsP.push(info.geo.roof);
-      if (info?.geo?.gables) { tint(info.geo.gables, fc); walls.push(info.geo.gables); }
+      if (info?.geo?.roof) { if (base) info.geo.roof.translate(0, base, 0); baseAttr(info.geo.roof, base); roofsP.push(info.geo.roof); }
+      if (info?.geo?.gables) { if (base) info.geo.gables.translate(0, base, 0); baseAttr(info.geo.gables, base); tint(info.geo.gables, fc); walls.push(info.geo.gables); }
     } catch (e) { /* rozbitý polygon přeskoč */ }
   }
   REAL.ctxTile ||= triplanar(new THREE.MeshStandardMaterial({ map: photo('rooftiles'), roughness: 0.8, vertexColors: true }), 1.3, 'world');
@@ -1914,6 +1948,15 @@ function buildContext(list, s, r, zc = ZC, o = {}) {
   }
 }
 
+// terén pod půdorysem: rohy a vnitřní body po ~2 m
+function groundOf(rings) {
+  const ring = rings[0]; let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, mn = Infinity, sum = 0, n = 0;
+  const add = (x, z) => { const h = gH(x, z); mn = Math.min(mn, h); sum += h; n++; };
+  for (const [x, z] of ring) { add(x, z); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  const st = Math.max(2, Math.sqrt((x1 - x0) * (z1 - z0) / 60));
+  for (let x = x0 + st / 2; x < x1; x += st) for (let z = z0 + st / 2; z < z1; z += st) if (inPoly(x, z, rings)) add(x, z);
+  return { min: mn, mean: sum / n };
+}
 // stromy: body z OSM (natural=tree), stromořadí a náhodně v zeleni podle hustoty; nikdy uvnitř domu
 function plantTrees(data, proj, s, A2, all, r, o = {}) {
   const pts = [], zc = o.zc ?? ZC, corr = o.corridor ?? inCorridor;
@@ -1949,11 +1992,12 @@ function drawTrees(pts, r) {
   pts = pts.slice(0, 700);
   const greens = [0x4d6b2e, 0x5a7a34, 0x3f5e2a, 0x6b8a3c, 0x55703a];
   pts.forEach(([x, z, h], i) => {
-    _m.compose(_p.set(x, h * 0.22, z), _q.identity(), _s.set(h * 0.035, h * 0.44, h * 0.035)); trunks.setMatrixAt(i, _m);
+    const y0 = gH(x, z) - 0.3;   // na svahu kmen kousek pod zem
+    _m.compose(_p.set(x, y0 + h * 0.22 + 0.15, z), _q.identity(), _s.set(h * 0.035, h * 0.44 + 0.3, h * 0.035)); trunks.setMatrixAt(i, _m);
     const rad = h * (0.26 + r() * 0.08);
     for (let b = 0; b < 2; b++) {
       const ox = b ? (r() - 0.5) * rad * 0.8 : 0, oz = b ? (r() - 0.5) * rad * 0.8 : 0, sc = b ? 0.75 : 1;
-      _m.compose(_p.set(x + ox, h * (b ? 0.8 : 0.6), z + oz), _q.setFromAxisAngle(_up, r() * 6), _s.setScalar(rad * sc)); crowns.setMatrixAt(i * 2 + b, _m);
+      _m.compose(_p.set(x + ox, y0 + 0.3 + h * (b ? 0.8 : 0.6), z + oz), _q.setFromAxisAngle(_up, r() * 6), _s.setScalar(rad * sc)); crowns.setMatrixAt(i * 2 + b, _m);
       crowns.setColorAt(i * 2 + b, _c.setHex(greens[Math.floor(r() * greens.length)]).multiplyScalar(0.85 + r() * 0.3));
     }
   });
@@ -2334,7 +2378,7 @@ const H = {
 const houseRoot = new THREE.Group(); scene.add(houseRoot);
 const vi = (x, y, z) => x + H.nx * (z + H.nz * y);
 function solidW(X, Y, Z) {
-  if (Y < 0) return true;
+  if (Y < gH(X, Z)) return true;
   const x = Math.floor((X - H.ox) / VS), y = Math.floor(Y / VS), z = Math.floor((Z - H.oz) / VS);
   return x >= 0 && z >= 0 && x < H.nx && z < H.nz && y < H.ny && H.vox[vi(x, y, z)] !== 0;
 }
@@ -3263,10 +3307,10 @@ const ctxOrthoRoof = (() => {
   const m = new THREE.MeshStandardMaterial({ map: photo('rooftiles'), roughness: 0.85, vertexColors: true });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { tOrtho: ORTHO_U.tex, uLean: ORTHO_U.lean, uOA2: ORTHO_U.a2, uTileL: ORTHO_U.tileL });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vOw;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvOw = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D tOrtho;\nuniform vec2 uLean;\nuniform float uOA2, uTileL;\nvarying vec3 vOw;')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aBase;\nvarying vec3 vOw;\nvarying float vBase;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvOw = (modelMatrix * vec4(transformed, 1.0)).xyz; vBase = aBase;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D tOrtho;\nuniform vec2 uLean;\nuniform float uOA2, uTileL;\nvarying vec3 vOw;\nvarying float vBase;')
       .replace('#include <map_fragment>', `
-        vec2 ouv = (vOw.xz + uLean * vOw.y + uOA2) / (2.0 * uOA2); ouv.y = 1.0 - ouv.y;
+        vec2 ouv = (vOw.xz + uLean * (vOw.y - vBase) + uOA2) / (2.0 * uOA2); ouv.y = 1.0 - ouv.y;   // náklon snímku roste s výškou nad terénem, ne nad domem
         float tl = dot(texture2D(map, vOw.xz / 1.3).rgb, vec3(0.2126, 0.7152, 0.0722));
         diffuseColor.rgb *= texture2D(tOrtho, ouv).rgb * 0.82 * mix(1.0, clamp(tl / uTileL, 0.55, 1.6), 0.35);`);
   };
@@ -3353,7 +3397,8 @@ class Grit {
       const k = i * 3, s = this.size[i];
       v[k + 1] -= G * dt;
       let nx = p[k] + v[k] * dt, ny = p[k + 1] + v[k + 1] * dt, nz = p[k + 2] + v[k + 2] * dt;
-      if (ny < s * 0.5) { ny = s * 0.5; v[k + 1] = Math.abs(v[k + 1]) * 0.2; v[k] *= 0.5; v[k + 2] *= 0.5; this.spin[i] *= 0.5; }
+      const gy = gH(nx, nz) + s * 0.5;
+      if (ny < gy) { ny = gy; v[k + 1] = Math.abs(v[k + 1]) * 0.2; v[k] *= 0.5; v[k + 2] *= 0.5; this.spin[i] *= 0.5; }
       else if (solidW(nx, ny, nz)) {
         if (solidW(p[k], ny, p[k + 2])) { if (v[k + 1] < 0) ny = Math.floor(ny / VS + 1) * VS + 0.002; else ny = p[k + 1]; v[k + 1] = -v[k + 1] * 0.2; v[k] *= 0.5; v[k + 2] *= 0.5; this.spin[i] *= 0.5; }
         else { nx = p[k]; nz = p[k + 2]; v[k] *= -0.3; v[k + 2] *= -0.3; }
@@ -3632,12 +3677,80 @@ function housePhysics() {
   phys.reset(); blocks.length = 0; timers.length = 0; S.ball = null;
   for (const k in meshes) { used[k] = 0; meshes[k].count = 0; }
   built = 'house';
-  phys.addStatic({ t: 'box', x: 1200, y: 2, z: 1200 }, { x: 0, y: -1, z: 0 });
+  if (TERR.on) {
+    // tenké výškové pole ±64 m kolem domu, pod terasou tlustá deska (rychlé trosky neprotunelují), pod tím záchytná rovina
+    const HN = 129, i0 = (TERR.half - (HN - 1) / 2) / TERR.s, g = new Float32Array(HN * HN);
+    for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) g[i + j * HN] = TERR.g[(i0 + i) + (i0 + j) * TERR.n];
+    phys.addHeightfield(g, HN, TERR.s, 0, 0);
+    const [x0, x1, z0, z1] = TERR.box;
+    phys.addStatic({ t: 'box', x: x1 - x0, y: 2, z: z1 - z0 }, { x: (x0 + x1) / 2, y: -1, z: (z0 + z1) / 2 });
+    phys.addStatic({ t: 'box', x: 1200, y: 2, z: 1200 }, { x: 0, y: TERR.min - 1.5, z: 0 });
+  } else phys.addStatic({ t: 'box', x: 1200, y: 2, z: 1200 }, { x: 0, y: -1, z: 0 });
   H.cols = new Array(H.chunks.length).fill(null); H.colDirty.clear();
   for (let ci = 0; ci < H.chunks.length; ci++) chunkCols(ci);
   for (const el of H.roof) { el.body = null; }
   PL.body = phys.addKinematic({ r: 0.27, h: 1.15 }, { x: PL.p.x, y: PL.p.y + 0.9, z: PL.p.z });
   propPhysics();
+}
+// terén: bez dat rovina; s DMR 5G dům na terase (medián terénu pod půdorysem), kolem ní plynulý přechod do skutečného svahu
+function terrainOff() {
+  TERR.on = false; TERR.killY = -30; TERR.min = TERR.max = 0; TERR.box = null;
+  if (groundMesh.geometry !== groundFlat) { groundMesh.geometry.dispose(); groundMesh.geometry = groundFlat; }
+  farTerr.visible = false; farGround.position.y = -0.04;
+}
+function terrainApply(tf, poly, spawn, orthoFar) {
+  terrainOff();
+  if (!tf) return;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of poly[0]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  const S = [];
+  for (let x = x0 + 0.5; x < x1; x += 1) for (let z = z0 + 0.5; z < z1; z += 1) if (inPoly(x, z, poly)) S.push(tf.at(x, z));
+  if (!S.length) for (const [x, z] of poly[0]) S.push(tf.at(x, z));
+  S.sort((a, b) => a - b);
+  const B = S[S.length >> 1], R0 = TERR.flatR, R1 = TERR.blendR;
+  const flat = (x, z) => {
+    let d = Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+    if (spawn) d = Math.min(d, Math.hypot(x - spawn.x, z - spawn.z) - 1.5);
+    const t = clamp((d - R0) / (R1 - R0), 0, 1); return t * t * (3 - 2 * t);
+  };
+  const { n, s, half, fn, fs, fhalf } = TERR, g = new Float32Array(n * n), fg = new Float32Array(fn * fn);
+  let lo = 0, hi = 0;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = -half + i * s, z = -half + j * s, h = (tf.at(x, z) - B) * flat(x, z);
+    g[i + j * n] = h; lo = Math.min(lo, h); hi = Math.max(hi, h);
+  }
+  for (let j = 0; j < fn; j++) for (let i = 0; i < fn; i++) { const x = -fhalf + i * fs, z = -fhalf + j * fs; fg[i + j * fn] = (tf.at(x, z) - B) * flat(x, z); }
+  Object.assign(TERR, { on: true, g, fg, B, min: lo, max: hi, killY: Math.min(0, lo) - 30, box: [x0 - R0 + 0.2, x1 + R0 - 0.2, z0 - R0 + 0.2, z1 + R0 - 0.2] });
+  // blízká zem ±140 m: okraj bere výšky z daleké mřížky, ať na ni navazuje bez škvír
+  const A2 = 140, NS = 200, geo = new THREE.PlaneGeometry(2 * A2, 2 * A2, NS, NS).rotateX(-Math.PI / 2), P = geo.attributes.position;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), z = P.getZ(i);
+    P.setY(i, Math.abs(x) > A2 - 0.01 || Math.abs(z) > A2 - 0.01 ? gridH(fg, fn, fs, fhalf, x, z) : gH(x, z));
+  }
+  geo.computeVertexNormals(); geo.computeBoundingSphere();
+  if (groundMesh.geometry !== groundFlat) groundMesh.geometry.dispose();
+  groundMesh.geometry = geo;
+  // daleká zem do ±700 m (tráva, za ní mlha), díra uprostřed na blízkou zem; 140 m = 20 buněk po 7 m, okraje sedí na sebe
+  const pos = new Float32Array(fn * fn * 3), uv = new Float32Array(fn * fn * 2), idx = [], inner = c => -fhalf + c * fs >= -A2 - 1e-6 && -fhalf + (c + 1) * fs <= A2 + 1e-6;
+  let edgeLo = Infinity;
+  for (let j = 0; j < fn; j++) for (let i = 0; i < fn; i++) {
+    const k = i + j * fn; pos[k * 3] = -fhalf + i * fs; pos[k * 3 + 1] = fg[k]; pos[k * 3 + 2] = -fhalf + j * fs;
+    uv[k * 2] = (pos[k * 3] + 710) / 1420; uv[k * 2 + 1] = 1 - (pos[k * 3 + 2] + 710) / 1420;   // ortofoto obzoru má ±710 m
+    if (i === 0 || j === 0 || i === fn - 1 || j === fn - 1) edgeLo = Math.min(edgeLo, fg[k]);
+  }
+  for (let j = 0; j < fn - 1; j++) for (let i = 0; i < fn - 1; i++) {
+    if (inner(i) && inner(j)) continue;
+    const a = i + j * fn, b = a + 1, c = a + fn, d = c + 1; idx.push(a, c, b, b, c, d);
+  }
+  const fgeo = new THREE.BufferGeometry(); fgeo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); fgeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); fgeo.setIndex(idx);
+  fgeo.computeVertexNormals(); fgeo.computeBoundingSphere();
+  farTerr.geometry.dispose(); farTerr.geometry = fgeo; farTerr.visible = true;
+  if (farOrthoMat.map) { farOrthoMat.map.dispose(); farOrthoMat.map = null; }
+  if (orthoFar) {
+    const t = new THREE.CanvasTexture(orthoFar); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    farOrthoMat.map = t; farOrthoMat.needsUpdate = true; farTerr.material = farOrthoMat;
+  } else farTerr.material = REAL.far;
+  farGround.position.y = edgeLo - 3;
 }
 // okolí: sousední domy, silnice, tráva a stromy v měřítku 1 : 1 (z OSM), u ukázkového domu vymyšlené
 function houseContext(ctx) {
@@ -3646,7 +3759,9 @@ function houseContext(ctx) {
   if (groundTex) groundTex.dispose();
   groundTex = paintMask(ctx.data, ctx.proj, 1, A2);
   if (groundMat.map !== groundTex) { groundMat.map = groundTex; groundMat.needsUpdate = true; }
-  groundMesh.scale.set(2 * A2, 1, 2 * A2); groundMesh.position.set(0, 0, 0);
+  terrainApply(ctx.terr, H.spec.poly, H.spawn && H.spawn.p, ctx.orthoFar);
+  if (TERR.on) groundMesh.scale.set(1, 1, 1); else groundMesh.scale.set(2 * A2, 1, 2 * A2);
+  groundMesh.position.set(0, 0, 0);
   // ortofoto ČÚZK: barva země z leteckého snímku, zrno z fotek podle masky
   if (ORTHO_U.tex.value.isCanvasTexture) ORTHO_U.tex.value.dispose();
   if (ctx.ortho) {
@@ -3657,7 +3772,7 @@ function houseContext(ctx) {
     const lum = (c, k = [1, 1, 1]) => c ? c.r * k[0] * 0.2126 + c.g * k[1] * 0.7152 + c.b * k[2] * 0.0722 : 0.25;
     ORTHO_U.detL.value.set(lum(photoAvg('asphalt')), lum(photoAvg('grass'), [0.72, 0.98, 0.5]), lum(photoAvg('pavers')));
   } else { ORTHO_U.tex.value = new THREE.DataTexture(new Uint8Array([128, 128, 128, 0]), 1, 1); ORTHO_U.tex.value.needsUpdate = true; ORTHO_U.k.value = 0; ORTHO_U.roof.value = 0; ORTHO_U.lean.value.set(0, 0); }
-  buildContext(ctx.neighbors, 1, r, 0, { roofOf: ctx.hf ? b => neighborRoof(b, ctx.hf, ctx.sampler) : null, orthoRoof: !!ctx.ortho });
+  buildContext(ctx.neighbors, 1, r, 0, { roofOf: ctx.hf ? b => neighborRoof(b, ctx.hf, ctx.sampler) : null, orthoRoof: !!ctx.ortho, ground: TERR.on });
   const [x0, x1, z0, z1] = H.info.bbox;
   const sp = H.spawn ? H.spawn.p : V3(), keepOut = (x, z) => (x > x0 - 2.5 && x < x1 + 2.5 && z > z0 - 2.5 && z < z1 + 2.5) || Math.hypot(x - sp.x, z - sp.z) < 3.5;
   const tp = ctx.hf || ctx.sampler ? findTrees(ctx.hf, ctx.sampler, ctx.all, ctx.hf ? ctx.hf.half - 2 : A2 - 2, keepOut) : null;
@@ -3746,7 +3861,7 @@ function houseFromOSM(data, center) {
     if (Math.max(Math.abs(bx0 + bx1), Math.abs(bz0 + bz1)) / 2 < 135 && neighbors.length < 700) neighbors.push({ tags: b.tags, rings, floors: floorsOf(b.tags) });
   }
   all.push({ rings: poly, box: [-w / 2, w / 2, -d / 2, d / 2] });
-  if (crop) for (const part of cropRest(poly[0], crop)) neighbors.push({ tags: t, rings: [part], floors: Math.min(floorsOf(t), 9) });
+  if (crop) for (const part of cropRest(poly[0], crop)) neighbors.push({ tags: t, rings: [part], floors: Math.min(floorsOf(t), 9), self: true });
   return {
     spec: { name, poly, crop, floors, roof, pitch: ang > 5 && ang < 70 ? ang : roof === 'hip' ? 32 : roof === 'skillion' ? 15 : 38, ridge: t['roof:orientation'] === 'across' ? 'short' : 'long',
       facade, roofCol, frames: 0xf2f0eb, plinth: 0x8e8a84, front, seed, cut, osm: true },
@@ -3860,6 +3975,28 @@ async function heightField(ctx, half) {
     },
   };
 }
+// holý terén DMR 5G (m n. m.) ve čtverci ±half kolem domu; služba má 2m rastr, tak se stahuje 2 m na pixel (±700 m ≈ 2 MB)
+async function terrainField(ctx, half) {
+  const cs = [[-half, -half], [half, -half], [-half, half], [half, half]].map(([x, z]) => llMerc(ctx.inv(x, z)));
+  const minx = Math.min(...cs.map(c => c[0])), maxx = Math.max(...cs.map(c => c[0])), miny = Math.min(...cs.map(c => c[1])), maxy = Math.max(...cs.map(c => c[1]));
+  const k = Math.cos(ctx.c0[0] * Math.PI / 180), W = Math.min(900, Math.ceil((maxx - minx) * k / 2)), Hh = Math.min(900, Math.ceil((maxy - miny) * k / 2));
+  const q = `exportImage?bbox=${minx},${miny},${maxx},${maxy}&bboxSR=3857&imageSR=3857&size=${W},${Hh}&format=bip&pixelType=F32&noData=-9999&interpolation=RSP_BilinearInterpolation&f=image`;
+  const a = await getRes(`${CUZK}/arcgis2/rest/services/dmr5g/ImageServer/${q}`, 'buf', 30000);
+  if (a.byteLength < W * Hh * 4) throw new Error('terén: krátká data');
+  const t = new Float32Array(a, 0, W * Hh);
+  let sum = 0, cnt = 0; for (const v of t) if (v > -1000) { sum += v; cnt++; }
+  if (cnt < t.length * 0.3) throw new Error('terén: mimo pokrytí');
+  const fill = sum / cnt; for (let i = 0; i < t.length; i++) if (t[i] < -1000) t[i] = fill;   // za hranicí republiky data nejsou
+  const g = (i, j) => t[clamp(i, 0, W - 1) + W * clamp(j, 0, Hh - 1)];
+  return {
+    half,
+    at(x, z) {
+      const [mx, my] = llMerc(ctx.inv(x, z)), px = (mx - minx) / (maxx - minx) * W - 0.5, py = (maxy - my) / (maxy - miny) * Hh - 0.5;
+      const i0 = Math.floor(px), j0 = Math.floor(py), fx = px - i0, fy = py - j0;
+      return (g(i0, j0) * (1 - fx) + g(i0 + 1, j0) * fx) * (1 - fy) + (g(i0, j0 + 1) * (1 - fx) + g(i0 + 1, j0 + 1) * fx) * fy;
+    },
+  };
+}
 // tvar střechy z výšek: plochá / sedlová (hřeben podél u nebo v) / valbová, lineární regrese výšky na vzdálenost od okraje
 function fitRoofField(rings, hf, fr, crop) {
   fr = fr || { cs: 1, sn: 0, cx: 0, cz: 0 };
@@ -3892,14 +4029,14 @@ function fitRoofField(rings, hf, fr, crop) {
   return { ...best, mean, top, n, box };
 }
 // ortofoto do plátna v souřadnicích domu (svět je natočený, dlaždice se kreslí afinní transformací po rozích)
-async function orthoCanvas(ctx, A2, N, prog) {
+async function orthoCanvas(ctx, A2, N, prog, levels = [[18, A2], [20, 62]]) {
   const cv = document.createElement('canvas'); cv.width = cv.height = N;
   const g = cv.getContext('2d'); g.fillStyle = '#6f7a5a'; g.fillRect(0, 0, N, N);
   const toCv = (la, lo) => { const [x, z] = ctx.proj([la, lo]); return [(x + A2) / (2 * A2) * N, (z + A2) / (2 * A2) * N]; };
   const tLon = (x, z) => x / 2 ** z * 360 - 180, tLat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z))) * 180 / Math.PI;
   const tileOf = ([la, lo], z) => [Math.floor((lo + 180) / 360 * 2 ** z), Math.floor((1 - Math.log(Math.tan(la * Math.PI / 180) + 1 / Math.cos(la * Math.PI / 180)) / Math.PI) / 2 * 2 ** z)];
   const jobs = [];
-  for (const [z, half] of [[18, A2], [20, 62]]) {
+  for (const [z, half] of levels) {
     const cs = [[-half, -half], [half, -half], [-half, half], [half, half]].map(([x, zz]) => tileOf(ctx.inv(x, zz), z));
     for (let y = Math.min(...cs.map(c => c[1])); y <= Math.max(...cs.map(c => c[1])); y++) for (let x = Math.min(...cs.map(c => c[0])); x <= Math.max(...cs.map(c => c[0])); x++) jobs.push([z, x, y]);
   }
@@ -4267,12 +4404,22 @@ function roofGeoGain(g, smp, L) {
 async function enrichCZ(spec, ctx, msg) {
   const A2 = 140, notes = [];
   msg('Stahuju údaje o domě z ČÚZK…');
-  const [ru, hf, ortho] = await Promise.allSettled([
+  const [ru, hf, ortho, terr, orthoFar] = await Promise.allSettled([
     ruianAt(ctx.targetLL),
     heightField(ctx, 120),
     orthoCanvas(ctx, A2, 4096, (n, t) => msg(`Stahuju ortofoto ČÚZK… ${n} / ${t}`)),
+    terrainField(ctx, 710),
+    orthoCanvas(ctx, 710, 1024, null, [[16, 710]]),   // hrubé ortofoto na daleký terén do obzoru
   ]);
-  spec.cz = { ruian: false, heights: false, ortho: false };
+  spec.cz = { ruian: false, heights: false, ortho: false, terrain: false };
+  if (terr.status === 'fulfilled') {
+    ctx.terr = terr.value; spec.cz.terrain = true;
+    let lo = Infinity, hi = -Infinity;
+    for (let x = -100; x <= 100; x += 10) for (let z = -100; z <= 100; z += 10) { const h = terr.value.at(x, z); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+    const h0 = terr.value.at(0, 0);
+    notes.push(`terén ${Math.round(h0)} m n. m.${hi - lo > 2 ? `, v okolí 100 m převýšení ${Math.round(hi - lo)} m` : ', rovina'}`);
+  } else console.warn('terén DMR 5G:', terr.reason);
+  if (orthoFar.status === 'fulfilled' && orthoFar.value) ctx.orthoFar = orthoFar.value;
   if (ru.status === 'fulfilled' && ru.value) {
     const a = ru.value; spec.cz.ruian = true;
     spec.core = KONSTRUKCE[a.druhkonstrukcekod] || 'brick';
@@ -4516,7 +4663,7 @@ function propUpdate(rdt) {
   for (const prop of PROP.list) {
     if (!prop.body) continue;
     const sl = phys.sleeping(prop.body); if (sl && prop.synced) continue;
-    const p = phys.pos(prop.body), q = phys.rot(prop.body);
+    const p = phys.pos(prop.body), q = phys.rot(prop.body); terrRescue(prop.body, p);
     prop.g.position.set(p.x, p.y, p.z); prop.g.quaternion.set(q.x, q.y, q.z, q.w); prop.synced = sl; prop.g.updateMatrixWorld(true); prop.bb.setFromObject(prop.g);
     const v = phys.vel(prop.body), dv = Math.hypot(v.x - prop.pv.x, v.y - prop.pv.y, v.z - prop.pv.z); prop.pv.set(v.x, v.y, v.z); prop.cd -= rdt;
     if (dv > 4.5 && prop.cd <= 0) { prop.cd = 0.25; Snd.thud(Math.min(1, dv / 12)); propHit(prop, prop.bb.getCenter(V3()), (dv - 4.5) * 0.7, null, dv > 7); }
@@ -4526,7 +4673,8 @@ function propUpdate(rdt) {
     const sl = phys.sleeping(pt.body); if (sl && pt.synced) continue;
     const p = phys.pos(pt.body), q = phys.rot(pt.body);
     pt.g.quaternion.set(q.x, q.y, q.z, q.w); pt.g.position.set(p.x, p.y, p.z).sub(_pv.copy(pt.c0).applyQuaternion(pt.g.quaternion)); pt.g.updateMatrixWorld(true); partClip(pt); pt.synced = sl;
-    if (p.y < -30) { removePart(pt); continue; }
+    if (p.y < TERR.killY) { removePart(pt); continue; }
+    terrRescue(pt.body, p);
     const v = phys.vel(pt.body), dv = Math.hypot(v.x - pt.pv.x, v.y - pt.pv.y, v.z - pt.pv.z); pt.pv.set(v.x, v.y, v.z); pt.cd -= rdt;
     if (dv > 3.5 && pt.cd <= 0) { pt.cd = 0.25; if (PMAT[pt.mat].h >= 1) Snd.thud(Math.min(0.6, dv / 15)); partHit(pt, (dv - 3.5) * 0.45, null); }
   }
@@ -4592,8 +4740,9 @@ class Flutter {
       if (!this.rest[i]) {
         v[k + 1] -= this.g * dt; v[k] *= damp; v[k + 1] *= damp; v[k + 2] *= damp;
         const nx = p[k] + (v[k] + Math.sin(a * 3.1 + ph) * this.sway) * dt, ny = p[k + 1] + v[k + 1] * dt, nz = p[k + 2] + (v[k + 2] + Math.cos(a * 2.4 + ph) * this.sway) * dt;
-        if (ny < 0.004 || solidW(nx, ny, nz)) {
-          if (ny < 0.004 || solidW(p[k], ny, p[k + 2])) { this.rest[i] = 1; p[k + 1] = ny < 0.004 ? 0.004 : Math.floor(ny / VS + 1) * VS + 0.004; this.q[i].setFromEuler(_e2.set(-Math.PI / 2, 0, ph)); }
+        const gy = gH(nx, nz) + 0.004;
+        if (ny < gy || solidW(nx, ny, nz)) {
+          if (ny < gy || solidW(p[k], ny, p[k + 2])) { this.rest[i] = 1; p[k + 1] = ny < gy ? gy : Math.floor(ny / VS + 1) * VS + 0.004; this.q[i].setFromEuler(_e2.set(-Math.PI / 2, 0, ph)); }
           else { v[k] *= -0.3; v[k + 2] *= -0.3; }
         } else { p[k] = nx; p[k + 1] = ny; p[k + 2] = nz; this.q[i].setFromEuler(_e2.set(Math.sin(a * 2.7 + ph) * 1.1, a * 1.7 + ph, Math.cos(a * 2.1 + ph) * 0.8)); }
       }
@@ -4623,7 +4772,7 @@ function loadToolModels() {
 const PL = { p: V3(), v: V3(), yaw: 0, pitch: 0, ground: false, fly: false, eye: 0, keys: new Set(), body: null, bob: 0, locked: false, drag: null };
 const PW = 0.24, PHT = 1.74, EYE = 1.6;
 function boxFree(px, py, pz) {
-  if (py < -1e-4) return false;
+  if (py < gH(px, pz) - 1e-4) return false;
   const { nx, ny, nz, vox } = H; if (!vox) return true;
   const x0 = Math.max(0, Math.floor((px - PW - H.ox) / VS + 1e-6)), x1 = Math.min(nx - 1, Math.ceil((px + PW - H.ox) / VS - 1e-6) - 1);
   const z0 = Math.max(0, Math.floor((pz - PW - H.oz) / VS + 1e-6)), z1 = Math.min(nz - 1, Math.ceil((pz + PW - H.oz) / VS - 1e-6) - 1);
@@ -4636,7 +4785,7 @@ function movePlayer(dt) {
   const run = k.has('ShiftLeft') || k.has('ShiftRight'), sp = PL.fly ? (run ? 14 : 7) : run ? 6.5 : 3.8;
   const sy = Math.sin(PL.yaw), cy = Math.cos(PL.yaw);
   let wx = -sy * f + cy * s, wz = -cy * f - sy * s; const wl = Math.hypot(wx, wz); if (wl > 0) { wx = wx / wl * sp; wz = wz / wl * sp; }
-  const acc = PL.fly ? 8 : PL.ground ? 14 : 2.5, a = 1 - Math.exp(-acc * dt);
+  const acc = PL.fly ? 8 : PL.ground ? 14 : 2.5, a = 1 - Math.exp(-acc * dt), was = PL.ground;
   PL.v.x += (wx - PL.v.x) * a; PL.v.z += (wz - PL.v.z) * a;
   if (PL.fly) { const up = (k.has('Space') ? 1 : 0) - (k.has('ControlLeft') || k.has('KeyC') ? 1 : 0); PL.v.y += (up * sp - PL.v.y) * a; }
   else { PL.v.y -= G * dt; if (PL.ground && k.has('Space')) { PL.v.y = 5.3; PL.ground = false; } }
@@ -4659,6 +4808,8 @@ function movePlayer(dt) {
     }
   }
   if (!PL.fly && PL.v.y <= 0 && !boxFree(PL.p.x, PL.p.y - 0.03, PL.p.z)) PL.ground = true;
+  // z kopce dolů: drž se terénu, ať chůze neposkakuje
+  if (TERR.on && !PL.fly && was && !PL.ground && PL.v.y <= 0) { const gh = gH(PL.p.x, PL.p.z); if (PL.p.y > gh && PL.p.y - gh < 0.35 && boxFree(PL.p.x, gh, PL.p.z)) { PL.eye += PL.p.y - gh; PL.p.y = gh; PL.ground = true; } }
   PL.p.x = clamp(PL.p.x, -130, 130); PL.p.z = clamp(PL.p.z, -130, 130); PL.p.y = Math.min(PL.p.y, 60);
   PL.eye *= Math.exp(-dt * 12);
   const moving = PL.ground && Math.hypot(PL.v.x, PL.v.z) > 0.5; PL.bob += moving ? dt * Math.hypot(PL.v.x, PL.v.z) * 2.1 : 0;
@@ -4728,8 +4879,18 @@ function houseRay(o, d, max) {
     if (hit) best = { kind: 'debris', t: hit.distance, p: hit.point.clone(), n: hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : d.clone().negate(), deb: H.debris.find(x => x.mesh === hit.object) };
   }
   const ph = propRay(o, d, best ? best.t : max); if (ph) best = ph;
-  if (d.y < -1e-6) { const t = -o.y / d.y; if (better(t)) best = { kind: 'ground', t, p: V3().copy(o).addScaledVector(d, t), n: V3(0, 1, 0) }; }
+  const t = terrRay(o, d, best ? best.t : max); if (t !== null && better(t)) best = { kind: 'ground', t, p: V3().copy(o).addScaledVector(d, t), n: V3(0, 1, 0) };
   return best;
+}
+function terrRay(o, d, max) {
+  if (!TERR.on) { if (d.y > -1e-6) return null; const t = -o.y / d.y; return t <= max ? t : null; }
+  let tp = 0, fp = o.y - gH(o.x, o.z); if (fp < 0) return 0;
+  for (let t = 0.1; t < max + 0.1; t += 0.1) {
+    const f = o.y + d.y * t - gH(o.x + d.x * t, o.z + d.z * t);
+    if (f < 0) return tp + (t - tp) * fp / (fp - f);
+    tp = t; fp = f;
+  }
+  return null;
 }
 function hEvt(text) { const e = $('hEvt'); e.textContent = text; e.style.opacity = 1; H.evtT = 1.8; }
 function useTool() {
@@ -4830,14 +4991,21 @@ function updateBalls(dt) {
       propBall(b);
       for (const pn of H.panes) if (pn.alive && Math.abs(b.p.x - pn.c.x) < pn.s.x / 2 + 0.28 && Math.abs(b.p.y - pn.c.y) < pn.s.y / 2 + 0.28 && Math.abs(b.p.z - pn.c.z) < pn.s.z / 2 + 0.28) breakPane(pn);
       for (const el of H.roof) if (el.st === 1 && el.p.distanceTo(b.p) < Math.max(el.s.x, el.s.z) * 0.5 + 0.25) { _v.copy(el.p).sub(b.p); _q2.copy(el.q).invert(); _v.applyQuaternion(_q2); if (Math.abs(_v.y) < el.s.y / 2 + 0.3) { dropEl(el, null, { x: b.v.x * 0.4, y: b.v.y * 0.4, z: b.v.z * 0.4 }); b.v.multiplyScalar(0.85); roofSupport(); } }
-      if (b.p.y < 0.28 || b.v.length() < 5 || b.life > 4) {
-        b.p.y = Math.max(b.p.y, 0.3);
+      if (b.p.y < gH(b.p.x, b.p.z) + 0.28 || b.v.length() < 5 || b.life > 4) {
+        b.p.y = Math.max(b.p.y, gH(b.p.x, b.p.z) + 0.3);
         b.body = phys.add({ t: 'ball', r: 0.28 }, b.p, _qI, { density: 7, friction: 0.5, linDamp: 0.1, angDamp: 0.3 });
         phys.setVel(b.body, b.v);
       }
     }
     b.mesh.position.copy(b.p);
   }
+}
+// tenké výškové pole občas propustí rychlý nebo plochý kus (Rapier bez CCD, ověřeno: ~8 % drobných kostek): vrátit ho nad zem
+function terrRescue(b, p) {
+  if (!TERR.on) return false;
+  const h = gH(p.x, p.z); if (p.y > h - 0.2) return false;
+  phys.setPos(b, { x: p.x, y: h + 0.3, z: p.z }); const v = phys.vel(b); phys.setVel(b, { x: v.x * 0.5, y: Math.abs(v.y) * 0.15, z: v.z * 0.5 });
+  return true;
 }
 // ---------- smyčka domu ----------
 function houseUpdate(rdt, dt) {
@@ -4858,7 +5026,8 @@ function houseUpdate(rdt, dt) {
     const p = phys.pos(d.body), q = phys.rot(d.body);
     _m.compose(_p.set(p.x, p.y, p.z), _q.set(q.x, q.y, q.z, q.w), _s.set(1, 1, 1));
     d.mesh.matrix.copy(_m).multiply(_im.makeTranslation(-d.c0.x, -d.c0.y, -d.c0.z)); d.mesh.matrixWorldNeedsUpdate = true; d.synced = sl;
-    if (p.y < -30) { removeDebris(d, false); continue; }
+    if (p.y < TERR.killY) { removeDebris(d, false); continue; }
+    terrRescue(d.body, p);
     const v = phys.vel(d.body), dv = Math.hypot(v.x - d.pv.x, v.y - d.pv.y, v.z - d.pv.z), fall = d.pv.y;
     d.pv.set(v.x, v.y, v.z); d.cd -= rdt;
     if (dv > 3 && d.cd <= 0) {
@@ -4878,7 +5047,8 @@ function houseUpdate(rdt, dt) {
     _m.compose(_p.set(p.x, p.y, p.z), _q.set(q.x, q.y, q.z, q.w), el.s); el.mesh.setMatrixAt(el.idx, _m); el.mesh.instanceMatrix.needsUpdate = true; el.synced = sl;
     const v = phys.vel(el.body), dv = Math.hypot(v.x - el.pv.x, v.y - el.pv.y, v.z - el.pv.z); el.pv.set(v.x, v.y, v.z);
     if (dv > 4 && el.kind === 'tile' && Math.random() < 0.4) { dustPuff(_p, 0.5, 0.2); Snd.thud(0.12); }
-    if (p.y < -30) { phys.remove(el.body); el.body = null; el.mesh.setMatrixAt(el.idx, ZERO_M); }
+    if (p.y < TERR.killY) { phys.remove(el.body); el.body = null; el.mesh.setMatrixAt(el.idx, ZERO_M); }
+    else terrRescue(el.body, p);
   }
   for (const c of H.charges) c.led.visible = Math.sin(clock * 9) > 0;
   propUpdate(rdt);
@@ -4903,6 +5073,7 @@ function houseCamera(rdt) {
     H.orbitT = (H.orbitT || 0) + rdt;
     const a = H.orbit + Math.sin(H.orbitT * 0.18) * 0.55, R = H.radius * 2.0 + 5, c = H.center;
     camera.position.set(c.x + Math.sin(a) * R, c.y + R * 0.38, c.z + Math.cos(a) * R);
+    camera.position.y = Math.max(camera.position.y, gH(camera.position.x, camera.position.z) + 2);
     camera.lookAt(c.x, c.y * 0.8, c.z);
   } else {
     const bob = Math.sin(PL.bob * Math.PI) * 0.035;
@@ -5001,7 +5172,7 @@ function houseEnter() {
 }
 function houseLeave() {
   if (S.kind !== 'house') return;
-  H.state = 'off'; houseClear(); houseRoot.visible = false; ambU.uAmbK.value = 0; setSun(SUN0); H.meterT = 0; slingIsland.visible = true;
+  H.state = 'off'; houseClear(); terrainOff(); houseRoot.visible = false; ambU.uAmbK.value = 0; setSun(SUN0); H.meterT = 0; slingIsland.visible = true;
   camera.fov = 45; camera.near = 0.1; camera.clearViewOffset(); camera.updateProjectionMatrix(); dustScale();
   key.shadow.mapSize.set(2048, 2048); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; }
   key.shadow.normalBias = 0.03; key.shadow.bias = -0.0003; key.shadow.radius = 3;
@@ -5034,7 +5205,7 @@ function housePlay(fresh) {
   if (fresh) houseBuild(H.spec);
   camera.clearViewOffset(); camera.updateProjectionMatrix();
   $('editor').hidden = true; $('ov').hidden = true; $('cardEnd').hidden = true; $('cardPause').hidden = true; $('hhud').hidden = false;
-  PL.p.copy(H.spawn.p); PL.v.set(0, 0, 0); PL.yaw = H.spawn.yaw; PL.pitch = -0.04; PL.fly = false; PL.eye = 0; PL.keys.clear();
+  PL.p.copy(H.spawn.p); PL.p.y = Math.max(PL.p.y, gH(PL.p.x, PL.p.z)); PL.v.set(0, 0, 0); PL.yaw = H.spawn.yaw; PL.pitch = -0.04; PL.fly = false; PL.eye = 0; PL.keys.clear();
   housePhysics();
   H.state = 'play'; S.state = 'house'; H.cool = 0; H.hold = false; H.t0 = clock; H.used = { charges: 0, balls: 0 }; H.hudT = 0; H.ignoreUnlock = false;
   renderTools(); renderFly();
@@ -5470,6 +5641,15 @@ window.kaskada = {
     pos(x, y, z) { PL.p.set(x, y, z); PL.v.set(0, 0, 0); },
     tool(i) { setTool(i); }, use() { H.cool = 0; houseCamera(0); camera.updateMatrixWorld(); useTool(); }, hold(on) { houseCamera(0); camera.updateMatrixWorld(); H.hold = on; }, detonate() { detonateAll(); },
     key(code, down) { houseKey({ code, preventDefault() {} }, down); },
+    scatter(x, z, k) {   // test: kusy shodit na dané místo terénu (trosky i tašky)
+      let n = 0; const w = Math.ceil(Math.sqrt(k));
+      for (const d of [...H.debris, ...H.roof.filter(e => e.body), ...PROP.parts.filter(p => p.body && p.alive)]) {
+        if (n >= k) break; const px = x + (n % w - w / 2) * 1.1, pz = z + (Math.floor(n / w) - w / 2) * 1.1;
+        phys.setPos(d.body, { x: px, y: gH(px, pz) + 2.5, z: pz }); phys.setVel(d.body, { x: 0, y: -12, z: 0 }); phys.wake(d.body); d.synced = false; n++;
+      }
+      return n;
+    },
+    sim(sec) { const h = 1 / 60; for (let t = 0; t < sec; t += h) { phys.step(h); postStep(); houseUpdate(h, h); } return PL.p.toArray().map(v => +v.toFixed(2)); },
     fly(on) { PL.fly = on; renderFly(); }, play() { housePlay(false); }, edit() { houseEdit(); }, end() { houseEnd(); }, pause() { housePause(); }, resume() { houseResume(); },
     spec: () => H.spec, set(k, v) { H.spec[k] = v; editChanged(); },
     open(spec) { houseOpen(spec || DEMO_SPEC, demoContext()); },
@@ -5516,6 +5696,16 @@ window.kaskada = {
     },
     orthoTex(n) { const im = ORTHO_U[n] && ORTHO_U[n].value.image; return im && im.toDataURL ? im.toDataURL('image/png') : null; },
     center: () => H.center.toArray(), spawn: () => H.spawn && { p: H.spawn.p.toArray(), yaw: H.spawn.yaw },
+    terrain: (pts = []) => ({ on: TERR.on, B: +TERR.B.toFixed(2), min: +TERR.min.toFixed(2), max: +TERR.max.toFixed(2), box: TERR.box && TERR.box.map(v => +v.toFixed(1)), at: pts.map(([x, z]) => +gH(x, z).toFixed(2)),
+      farY: +farGround.position.y.toFixed(1), tris: groundMesh.geometry.index ? groundMesh.geometry.index.count / 3 : 0, farTris: farTerr.geometry.index ? farTerr.geometry.index.count / 3 : 0, player: PL.p.toArray().map(v => +v.toFixed(2)), ground: PL.ground,
+      deb: (() => {
+        let n = 0, under = 0, off = 0, lo = 0; const rest = [];
+        for (const d of [...H.debris.map(x => x.body), ...H.roof.filter(e => e.body).map(e => e.body), ...PROP.parts.filter(x => x.body && x.alive).map(x => x.body)]) {
+          const p = phys.pos(d), h = gH(p.x, p.z); n++; if (p.y < h - 0.3) under++; lo = Math.min(lo, p.y - h);
+          if (TERR.box && (p.x < TERR.box[0] || p.x > TERR.box[1] || p.z < TERR.box[2] || p.z > TERR.box[3])) { off++; if (phys.sleeping(d) && rest.length < 8) rest.push([+p.x.toFixed(1), +p.z.toFixed(1), +h.toFixed(2), +(p.y - h).toFixed(2)]); }
+        }
+        return { n, under, off, lo: +lo.toFixed(2), rest };
+      })() }),
     lockFail() { lockFail(); },
     tone(t, key) { renderer.toneMapping = t === 'agx' ? THREE.AgXToneMapping : THREE.NeutralToneMapping; if (key) window.kaskada._key = key; },
     room(k, type) {
