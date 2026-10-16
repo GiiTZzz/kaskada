@@ -150,6 +150,15 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 .swb[aria-pressed=true]{box-shadow:0 0 0 3px var(--night),0 0 0 5px var(--hazard)}
 .editor input[type=range]{width:100%;accent-color:var(--hazard)}
 .editor .row{justify-content:flex-start}
+/* fasáda z fotky: vlevo fotka s rohy stěny, vpravo narovnaný náhled s okny a dveřmi */
+.fas{position:fixed;inset:0;z-index:30;background:rgba(10,8,20,.82);display:grid;place-items:center;padding:16px;box-sizing:border-box}
+.fasBox{display:grid;grid-template-columns:auto 440px;gap:20px;align-items:start;background:rgba(22,16,40,.96);border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.5),inset 0 0 0 1px var(--edge);padding:20px;max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box}
+.fasL,.fasR{display:grid;gap:10px;align-content:start}
+.fasBox canvas{display:block;border-radius:8px;background:#0c0a18;touch-action:none}
+#fasSrc{cursor:grab}#fasOut{cursor:crosshair}
+.fasBox h3{font:600 13px var(--f-ui);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:0}
+.fasBox .head{font-size:34px}
+.fasBox .row{justify-content:flex-start}
 .placekind{justify-content:center}
 
 @media (max-width:760px){
@@ -223,12 +232,31 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="field"><span class="lab">Fasáda</span><div class="sw" id="edFacade"></div></div>
   <div class="field"><span class="lab">Střešní krytina</span><div class="sw" id="edRoofCol"></div><button type="button" class="segb" id="edRoofOrtho" hidden aria-pressed="false">Z leteckého snímku</button></div>
   <div class="field"><span class="lab">Okna a dveře</span><div class="sw" id="edFrames"></div></div>
+  <div class="field"><span class="lab">Fasády z fotek</span><div class="seg" id="edFac"><button type="button" class="segb" data-s="+z" aria-pressed="false">Čelo</button><button type="button" class="segb" data-s="-x" aria-pressed="false">Vlevo</button><button type="button" class="segb" data-s="+x" aria-pressed="false">Vpravo</button><button type="button" class="segb" data-s="-z" aria-pressed="false">Zadní</button></div><input type="file" id="edFacFile" accept="image/*" hidden><span class="fine">Vyfoť celou stěnu i se štítem, nahraj ji a přetáhni rohy. Okna a dveře se vyřežou tam, kde je označíš.</span></div>
   <div class="field" id="edSunRow" hidden><span class="lab">Slunce</span><div class="seg" id="edSun"><button type="button" class="segb" data-v="1">Jako na snímku</button><button type="button" class="segb" data-v="0">Do čela domu</button></div></div>
   <p class="err" id="edErr" role="alert" hidden></p>
   <div class="row"><button class="btn" id="edGo">Jdu bourat</button><button class="link" id="edBack">Zpět</button></div>
   <button class="link" id="edMap">Najít svůj dům na mapě</button>
   <p class="fine">Vnitřek domu (místnosti, nábytek, hůra) je vymyšlený, mapa ho nezná. <span id="edInfo"></span></p>
 </aside>
+
+<div class="fas" id="fasEd" hidden role="dialog" aria-modal="true" aria-labelledby="fasTitle" tabindex="-1">
+  <div class="fasBox">
+    <div class="fasL">
+      <h3>1 · Rohy stěny</h3>
+      <canvas id="fasSrc" width="640" height="480"></canvas>
+      <p class="fine">Přetáhni body na rohy stěny: 1 a 2 dole u země, 3 a 4 nahoře pod střechou (u okapu). Štít nad nimi se narovná sám.</p>
+    </div>
+    <div class="fasR">
+      <h2 class="head" id="fasTitle">Čelo domu</h2>
+      <h3>2 · Okna a dveře</h3>
+      <canvas id="fasOut" width="440" height="300"></canvas>
+      <div class="seg" id="fasMode"><button type="button" class="segb" data-v="w" aria-pressed="true">Okno</button><button type="button" class="segb" data-v="d" aria-pressed="false">Dveře</button><button type="button" class="segb" id="fasUndo">Smazat poslední</button></div>
+      <p class="fine">Tažením v náhledu označ otvor, kliknutím na označený ho smažeš. Čárkovaná čára je okap. <span id="fasInfo"></span></p>
+      <div class="row"><button class="btn" id="fasOk">Použít</button><button class="link" id="fasCancel">Zrušit</button><button class="link" id="fasDel" hidden>Odebrat fotku</button></div>
+    </div>
+  </div>
+</div>
 
 <div class="ov" id="ov">
   <div class="card" id="cardTitle">
@@ -2208,16 +2236,21 @@ function withAmb(mat) {
   return mat;
 }
 // voxely: triplanární projekce z pole textur, vrstva + drsnost + kovovost jedou s vrcholem (atribut aM)
+// fasády z fotek: strany +z, −z, +x, −x; u podél strany zleva (při pohledu zvenku), v = výška / výška zdi (štít nad 1)
+const FAC_SIDES = ['+z', '-z', '+x', '-x'];
+const FAC_U = { t: FAC_SIDES.map(() => { const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1); t.needsUpdate = true; return { value: t }; }),
+  on: { value: [0, 0, 0, 0] }, u: { value: FAC_SIDES.map(() => new THREE.Vector4()) }, g: { value: [1, 1, 1, 1] }, c: { value: FAC_SIDES.map(() => new THREE.Vector3(1, 1, 1)) }, vh: { value: 0.2 } };
 const voxMat = withAmb(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }));
 {
   const prev = voxMat.onBeforeCompile;
   voxMat.onBeforeCompile = (sh, r) => {
     sh.uniforms.uTexArr = { value: getTexArray() }; sh.uniforms.uTexM = { value: TEXM };
-    Object.assign(sh.uniforms, { tOrtho: ORTHO_U.tex, uOrthoRoof: ORTHO_U.roof, uLean: ORTHO_U.lean, uOA2: ORTHO_U.a2 });
+    Object.assign(sh.uniforms, { tOrtho: ORTHO_U.tex, uOrthoRoof: ORTHO_U.roof, uLean: ORTHO_U.lean, uOA2: ORTHO_U.a2,
+      tFac0: FAC_U.t[0], tFac1: FAC_U.t[1], tFac2: FAC_U.t[2], tFac3: FAC_U.t[3], uFacOn: FAC_U.on, uFacU: FAC_U.u, uFacG: FAC_U.g, uFacC: FAC_U.c, uFacVH: FAC_U.vh });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aM;\nvarying vec3 vM;\nvarying vec3 vOp;\nvarying vec3 vOn;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvM = aM; vOp = position; vOn = normal;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vM;\nvarying vec3 vOp;\nvarying vec3 vOn;\nuniform highp sampler2DArray uTexArr;\nuniform float uTexM[${VTEX.length}];\nuniform sampler2D tOrtho;\nuniform float uOrthoRoof, uOA2;\nuniform vec2 uLean;`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vM;\nvarying vec3 vOp;\nvarying vec3 vOn;\nuniform highp sampler2DArray uTexArr;\nuniform float uTexM[${VTEX.length}];\nuniform sampler2D tOrtho, tFac0, tFac1, tFac2, tFac3;\nuniform float uFacOn[4], uFacG[4], uFacVH;\nuniform vec4 uFacU[4];\nuniform vec3 uFacC[4];\nuniform float uOrthoRoof, uOA2;\nuniform vec2 uLean;`)
       .replace('#include <map_fragment>', `
         vec3 tpA = abs(vOn);
         vec2 tpUv = tpA.x > tpA.y && tpA.x > tpA.z ? vOp.zy : (tpA.y > tpA.z ? vOp.xz : vOp.xy);
@@ -2227,23 +2260,33 @@ const voxMat = withAmb(new THREE.MeshStandardMaterial({ vertexColors: true, roug
         if (uOrthoRoof > 0.5 && tpL == ${LAY.flatroof} && vOn.y > 0.5) {   // plochá střecha z leteckého snímku (vOp jsou původní souřadnice i u trosek)
           vec2 ouv = (vOp.xz + uLean * vOp.y + uOA2) / (2.0 * uOA2); ouv.y = 1.0 - ouv.y;
           diffuseColor.rgb = texture(tOrtho, ouv).rgb * 0.82 * mix(1.0, clamp(dot(tpC, vec3(0.2126, 0.7152, 0.0722)) / 0.25, 0.6, 1.5), 0.35);
+        }
+        if (vM.y > 5.0) {   // líc fasády z fotky (příznak +10 v drsnosti); barva vrcholu se dělí, fotka nese vlastní barvu
+          int si = vOn.z > 0.5 ? 0 : vOn.z < -0.5 ? 1 : vOn.x > 0.5 ? 2 : vOn.x < -0.5 ? 3 : -1;
+          if (si >= 0 && uFacOn[si] > 0.5) {
+            vec4 fu = uFacU[si];
+            vec2 fuv = vec2(((fu.x < 0.5 ? vOp.x : vOp.z) - fu.y) * fu.z, vOp.y * uFacVH * fu.w);
+            vec4 fc = si == 0 ? texture(tFac0, fuv) : si == 1 ? texture(tFac1, fuv) : si == 2 ? texture(tFac2, fuv) : texture(tFac3, fuv);
+            vec3 inv = 1.0 / max(vColor.rgb, vec3(0.04));   // mimo fotku (obloha nad štítem, okraj) omítka v průměrné barvě zdi z fotky
+            diffuseColor.rgb = mix(tpC * uFacC[si] * inv, fc.rgb * uFacG[si] * inv, fc.a);
+          }
         }`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vM.y;')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vM.y > 5.0 ? vM.y - 10.0 : vM.y;')
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vM.z;');
     prev.call(voxMat, sh, r);
   };
-  voxMat.customProgramCacheKey = () => 'vox|amb';
+  voxMat.customProgramCacheKey = () => 'vox|amb|fac';
 }
 
 // ---------- materiály voxelů ----------
 const VM = [null], VMK = new Map();
 function vmat(o) {
   const sc = o.sc ?? 0xffffff, cc = o.cc ?? (o.c ? 0xffffff : sc);
-  const k = `${o.s}|${sc}|${o.c ?? o.s}|${cc}|${o.r ?? 0.9}|${o.m ?? 0}|${o.h ?? 2}|${o.d ?? 1.8}|${o.st ? 1 : 0}`;
+  const k = `${o.s}|${sc}|${o.c ?? o.s}|${cc}|${o.r ?? 0.9}|${o.m ?? 0}|${o.h ?? 2}|${o.d ?? 1.8}|${o.st ? 1 : 0}|${o.ph ? 1 : 0}`;
   let id = VMK.get(k); if (id) return id;
   if (VM.length > 255) return 1;
   id = VM.length;
-  VM.push({ s: LAY[o.s], sc: new THREE.Color(sc), c: LAY[o.c ?? o.s], cc: new THREE.Color(cc), r: o.r ?? 0.9, m: o.m ?? 0, h: o.h ?? 2, d: o.d ?? 1.8, st: !!o.st });
+  VM.push({ s: LAY[o.s], sc: new THREE.Color(sc), c: LAY[o.c ?? o.s], cc: new THREE.Color(cc), r: o.r ?? 0.9, m: o.m ?? 0, h: o.h ?? 2, d: o.d ?? 1.8, st: !!o.st, ph: !!o.ph });
   VMK.set(k, id); return id;
 }
 const MAT = {
@@ -2350,7 +2393,7 @@ function genHouse(spec) {
   const pick = a => a[Math.floor(r() * a.length)];
   // jádro zdí podle druhu konstrukce (RÚIAN): cihla, kámen, panel/monolit, dřevo
   const core = CORE[spec.core] || CORE.brick;
-  const Wm = c => vmat({ s: 'plaster', sc: c, c: core.c, cc: core.cc, r: 0.88, h: core.h, d: core.d, st: 1 });
+  const Wm = (c, ph) => vmat({ s: 'plaster', sc: c, c: core.c, cc: core.cc, r: 0.88, h: core.h, d: core.d, st: 1, ph });
   const paint = types.map(t => t.map(tp => Wm(pick(PAINTS[tp] || PAINTS.hall))));
   const bathTile = MAT.tileW(0xe7edef), bathAbove = Wm(0xf4f4f2);
   const floorMat = types.map((t, k) => t.map(tp => tp === 'bath' ? MAT.tileF(0xd6d9da) : tp === 'kitchen' ? MAT.tileF(0xcbc3b6) : tp === 'hall' && k === 0 ? MAT.tileF(0xb9b0a3) : MAT.parq()));
@@ -2378,6 +2421,9 @@ function genHouse(spec) {
   const vox = H.vox, set = (x, y, z, m) => { if (x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz) vox[x + nx * (z + nz * y)] = m; };
   const get = (x, y, z) => (x >= 0 && y >= 0 && z >= 0 && x < nx && y < ny && z < nz) ? vox[x + nx * (z + nz * y)] : 0;
   const facade = Wm(spec.facade), facadeIn = facade, plinth = MAT.plinth(spec.plinth ?? 0x8e8a84);
+  // fasády z fotek: vnější líc dostane příznak (shader podle normály vybere fotku strany), okna a dveře té strany jsou z fotky
+  const FAC = spec.facades || {}, facOn = sd => !!(FAC[sd] && FAC[sd].openings), anyFac = FAC_SIDES.some(facOn);
+  const facadeO = anyFac ? Wm(spec.facade, 1) : facade, plinthO = anyFac ? vmat({ s: 'concrete', sc: spec.plinth ?? 0x8e8a84, c: 'concrete', h: 3, d: 2.3, st: 1, ph: 1 }) : plinth;
   const brick = core === CORE.brick ? MAT.brick() : vmat({ s: core.c, sc: core.cc ?? 0xffffff, h: core.h, d: core.d, st: 1 }), conc = MAT.conc(), ceil = MAT.ceil(), boards = MAT.boards(), membrane = MAT.membrane();
   const capMetal = MAT.metal(0x6f7275);
   // výmalba zdí podle sousední místnosti (vnitřní líc obvodové zdi i příčky)
@@ -2400,7 +2446,7 @@ function genHouse(spec) {
         if ((y + 1) * VS > top + 1e-6) break;
         let m;
         if (!pitched && y >= YA + 5) m = capMetal;
-        else if (d === 1) m = y < 5 ? plinth : facade;
+        else if (d === 1) m = y < 5 ? plinthO : facadeO;
         else if (y >= YA) m = brick;                                  // hůra: holé cihly
         else if (d === EXT && y >= FLOOR0) { const k = Math.min(F - 1, Math.floor((y - FLOOR0) / STY)), yk = y - FLOOR0 - STY * k; m = yk < 27 ? wallPaint(k, i, y) : brick; }
         else m = facadeIn;                                            // ostění oken a dveří dostane omítku, uvnitř je cihla
@@ -2497,7 +2543,16 @@ function genHouse(spec) {
   const roomBehind = (side, t, e) => { const [x, z] = cellOf(side, t, e, EXT); return x >= 0 && z >= 0 && x < nx && z < nz ? room[x + nx * z] : -1; };
   // 9) vchodové dveře na čelní straně (u chodby, když na tu stranu dosahuje)
   let entry = null;
-  {
+  const Hwall = pitched ? Ye : (YA + 6) * VS;
+  const facT = (sd, u) => { const zs = sd[1] === 'z', w = zs ? x1 - x0 : z1 - z0, P = sd === '+z' ? x0 + u * w : sd === '-z' ? x1 - u * w : sd === '+x' ? z1 - u * w : z0 + u * w; return Math.round((P - (zs ? ox : oz)) / VS - 0.5); };
+  const facY = v => Math.round(v * Hwall / VS);
+  const fFront = FAC[spec.front || '-z'], fDoors = facOn(spec.front || '-z') ? fFront.openings.filter(o => o.t === 'd') : null;
+  if (fDoors && fDoors.length) {
+    const o = fDoors.reduce((a, b) => (b.u1 - b.u0) * (b.v1 - b.v0) > (a.u1 - a.u0) * (a.v1 - a.v0) ? b : a), side = spec.front || '-z';
+    const ta = facT(side, o.u0), tb = facT(side, o.u1), c0 = Math.min(ta, tb), c1 = Math.max(ta, tb), c = Math.round((c0 + c1) / 2), e = edgeAt(side, c);
+    if (e >= 0 && c1 - c0 >= 4) { entry = { side, c, e, c0, c1, yt: Math.max(FLOOR0 + 12, facY(o.v1) - 1), o }; }
+  }
+  if (!entry && !facOn(spec.front || '-z')) {
     const side = spec.front || '-z', alongZ = side[1] === 'z';
     const tLen = alongZ ? nx : nz;
     let tc = Math.round(tLen / 2);
@@ -2509,16 +2564,20 @@ function genHouse(spec) {
       let ok = true; for (let t = c - 6; t <= c + 5; t++) if (edgeAt(side, t) !== e) { ok = false; break; }
       if (ok && !stairZone[(([x, z]) => x + nx * z)(cellOf(side, c, e, EXT + 1))]) { best = c; entry = { side, c, e }; break; }
     }
-    if (entry) {
-      const { c, e } = entry, Y = FLOOR0, leaf = MAT.wood(0x6b4630), frameM = MAT.wood(0x4a3426);
-      for (let t = c - 5; t <= c + 4; t++) for (let l = 0; l < EXT; l++) for (let y = Y; y <= Y + 21; y++) { const [x, z] = cellOf(side, t, e, l); set(x, y, z, 0); }
-      for (let t = c - 5; t <= c + 4; t++) for (let y = Y; y <= Y + 21; y++) {
-        const [x, z] = cellOf(side, t, e, 1);
-        set(x, y, z, t === c - 5 || t === c + 4 || y === Y + 21 ? frameM : (t === c + 2 && y === Y + 10) ? MAT.metal(0xb8b2a6) : leaf);
-      }
-      for (let t = c - 7; t <= c + 6; t++) for (let l = -1; l >= -4; l--) for (let y = 0; y < FLOOR0; y++) { const [x, z] = cellOf(side, t, e, l); set(x, y, z, plinth); }
-      for (let t = c - 7; t <= c + 6; t++) for (let l = EXT; l <= EXT + 10; l++) { const [x, z] = cellOf(side, t, e, l); if (x >= 0 && z >= 0 && x < nx && z < nz) keep[0][x + nx * z] = 1; }
+  }
+  const makeDoor = (side, e, ca, cb, Y, yt) => {
+    const leaf = MAT.wood(0x6b4630), frameM = MAT.wood(0x4a3426);
+    for (let t = ca; t <= cb; t++) for (let l = 0; l < EXT; l++) for (let y = Y; y <= yt; y++) { const [x, z] = cellOf(side, t, e, l); set(x, y, z, 0); }
+    for (let t = ca; t <= cb; t++) for (let y = Y; y <= yt; y++) {
+      const [x, z] = cellOf(side, t, e, 1);
+      set(x, y, z, t === ca || t === cb || y === yt ? frameM : (t === cb - 2 && y === Y + 10) ? MAT.metal(0xb8b2a6) : leaf);
     }
+  };
+  if (entry) {
+    const { c, e, side } = entry, ca = entry.c0 ?? c - 5, cb = entry.c1 ?? c + 4;
+    makeDoor(side, e, ca, cb, FLOOR0, entry.yt ?? FLOOR0 + 21);
+    for (let t = ca - 2; t <= cb + 2; t++) for (let l = -1; l >= -4; l--) for (let y = 0; y < FLOOR0; y++) { const [x, z] = cellOf(side, t, e, l); set(x, y, z, plinth); }
+    for (let t = ca - 2; t <= cb + 2; t++) for (let l = EXT; l <= EXT + 10; l++) { const [x, z] = cellOf(side, t, e, l); if (x >= 0 && z >= 0 && x < nx && z < nz) keep[0][x + nx * z] = 1; }
   }
   // 10) okna: v každém patře podél rovných úseků zdi, po místnostech
   const panes = [], winWall = Array.from({ length: F + 1 }, () => new Uint8Array(NA));
@@ -2542,9 +2601,28 @@ function genHouse(spec) {
       panes.push({ c: V3(cx, cy, cz), s: side[1] === 'z' ? V3(len, hh, 0.014) : V3(0.014, hh, len), alive: true });
     }
   };
+  // otvory z fotek: po úsecích se stejnou lící zdi
+  for (const side of SIDES) if (facOn(side)) for (const o of FAC[side].openings) {
+    if (entry && entry.o === o) continue;
+    const tL = side[1] === 'z' ? nx : nz, ta = facT(side, o.u0), tb = facT(side, o.u1), c0 = Math.max(1, Math.min(ta, tb)), c1 = Math.min(tL - 2, Math.max(ta, tb));
+    let ys = Math.max(FLOOR0, facY(o.v0)); const ye = facY(o.v1) - 1;
+    if (o.t === 'd' && ys < FLOOR0 + 6) ys = FLOOR0;
+    if (ye - ys < 4 || c1 - c0 < 2) continue;
+    for (let t = c0; t <= c1;) {
+      const e = edgeAt(side, t); if (e < 0) { t++; continue; }
+      let t2 = t; while (t2 + 1 <= c1 && edgeAt(side, t2 + 1) === e) t2++;
+      if (t2 - t >= 2) {
+        const k = clamp(Math.floor((ys - FLOOR0) / STY), 0, F - 1), attic = ys >= YA;
+        if (o.t === 'd') makeDoor(side, e, t, t2, ys, ye);
+        else makeWindow(attic ? F : k, side, e, t, t2 - t + 1, ys, ye - ys + 1, { attic, radiator: !attic && ys - (FLOOR0 + STY * k) >= 7 });
+      }
+      t = t2 + 1;
+    }
+  }
   for (let k = 0; k < F; k++) {
     const Y = FLOOR0 + STY * k;
     for (const side of SIDES) {
+      if (facOn(side)) continue;
       const tLen = side[1] === 'z' ? nx : nz;
       let t = 0;
       while (t < tLen) {
@@ -2571,6 +2649,7 @@ function genHouse(spec) {
   }
   // okénka ve štítech do hůry
   if (pitched && spec.roof !== 'hip') for (const side of SIDES) {
+    if (facOn(side)) continue;
     const alongZ = side[1] === 'z', tLen = alongZ ? nx : nz, c = Math.round(tLen / 2) - 4, e = edgeAt(side, c), e2 = edgeAt(side, c + 8);
     if (e < 0 || e2 !== e) continue;
     const [x, z] = cellOf(side, c + 4, e, 0), X = ox + (x + 0.5) * VS, Z = oz + (z + 0.5) * VS;
@@ -2603,8 +2682,8 @@ function genHouse(spec) {
   if (entry) {
     const [x, z] = cellOf(entry.side, entry.c, entry.e, -1), n = { '-z': [0, -1], '+z': [0, 1], '-x': [-1, 0], '+x': [1, 0] }[entry.side];
     spawn = { p: V3(ox + (x + 0.5) * VS + n[0] * 6.5, 0, oz + (z + 0.5) * VS + n[1] * 6.5), yaw: Math.atan2(n[0], n[1]) };
-  } else spawn = { p: V3((x0 + x1) / 2, 0, z0 - 7), yaw: Math.PI };
-  return { panes, roofParts, spawn, rooms, types, doors, flights, entry, chimney, bbox: [x0, x1, z0, z1], roofMax, YA };
+  } else { const n = { '-z': [0, -1], '+z': [0, 1], '-x': [-1, 0], '+x': [1, 0] }[spec.front || '-z']; spawn = { p: V3((x0 + x1) / 2 + n[0] * ((x1 - x0) / 2 + 6.5), 0, (z0 + z1) / 2 + n[1] * ((z1 - z0) / 2 + 6.5)), yaw: Math.atan2(n[0], n[1]) }; }
+  return { panes, roofParts, spawn, rooms, types, doors, flights, entry, chimney, bbox: [x0, x1, z0, z1], roofMax, YA, eave: Hwall };
 }
 
 // dispozice v osách (a = delší, b = kratší): chodba napříč, pásy pokojů po stranách
@@ -2940,7 +3019,7 @@ function meshRegion(G, lo, hi, skipBottom) {
           c[ax] = plane; c[u] = lo[u] + i + a; c[v] = lo[v] + j + b;
           P.push(G.ox + c[0] * VS, G.oy + c[1] * VS, G.oz + c[2] * VS);
           Nn.push(ax === 0 ? sg : 0, ax === 1 ? sg : 0, ax === 2 ? sg : 0);
-          C.push(col.r, col.g, col.b); A.push(layer, mt.r, mt.m);
+          C.push(col.r, col.g, col.b); A.push(layer, mt.r + (sk && mt.ph ? 10 : 0), mt.m);
         }
         if (sg > 0) I.push(base, base + 1, base + 2, base, base + 2, base + 3); else I.push(base, base + 2, base + 1, base, base + 3, base + 2);
         i += w2;
@@ -3432,6 +3511,7 @@ function houseBuild(spec) {
   H.oy = 0;
   const info = genHouse(spec);
   H.info = info; H.spec = spec; H.spawn = info.spawn;
+  facUniforms(spec, info);
   setSun(spec.sunPhoto && houseCtx && houseCtx.sun ? houseCtx.sun : SUN0);
   ORTHO_U.roof.value = spec.roofOrtho && ORTHO_U.k.value ? 1 : 0;
   H.CX = Math.ceil(H.nx / CH); H.CY = Math.ceil(H.ny / CH); H.CZ = Math.ceil(H.nz / CH);
@@ -3451,6 +3531,18 @@ function houseBuild(spec) {
   const sh = Math.hypot(SUN.x, SUN.z) || 1; ORTHO_U.shC.value.set(H.center.x, H.center.z, R); ORTHO_U.shD.value.set(SUN.x / sh, SUN.z / sh, SUN.y);
   H.buildMs = Math.round(performance.now() - t0);
   return info;
+}
+function facUniforms(spec, info) {
+  const F = spec.facades || {}, [x0, x1, z0, z1] = info.bbox;
+  FAC_U.vh.value = 1 / info.eave;
+  FAC_SIDES.forEach((sd, i) => {
+    const f = F[sd]; FAC_U.on.value[i] = f && f.tex ? 1 : 0;
+    if (!f || !f.tex) return;
+    FAC_U.t[i].value = f.tex;
+    const zs = sd[1] === 'z', w = zs ? x1 - x0 : z1 - z0;
+    FAC_U.u.value[i].set(zs ? 0 : 1, sd === '+z' ? x0 : sd === '-z' ? x1 : sd === '+x' ? z1 : z0, (sd === '+z' || sd === '-x' ? 1 : -1) / w, 1 / f.vmax);
+    FAC_U.g.value[i] = f.gain || 1; if (f.avg) FAC_U.c.value[i].copy(f.avg);
+  });
 }
 function housePhysics() {
   phys.reset(); blocks.length = 0; timers.length = 0; S.ball = null;
@@ -4529,6 +4621,7 @@ function houseLeave() {
 }
 function houseOpen(spec, ctx) {
   houseEnter();
+  for (const f of Object.values((H.spec && H.spec.facades) || {})) if (f.tex) f.tex.dispose();
   H.spec = { ...spec }; houseCtx = ctx;
   try { houseBuild(H.spec); }
   catch (e) { console.warn(e); houseLeave(); throw e; }
@@ -4599,6 +4692,169 @@ const SW = {
 };
 const swName = { 0xeadfc8: 'krémová', 0xf3efe6: 'bílá', 0xe8d29a: 'žlutá', 0xd9c2a5: 'pískové', 0xc9d1c4: 'šedozelená', 0xbfcbd6: 'modrošedá', 0xd8a58c: 'lososová', 0x9e9a93: 'šedá', 0xb8644a: 'cihlová',
   0xa5492f: 'pálená taška', 0x7e2f22: 'vínová', 0x4a4542: 'tmavě hnědá', 0x2c2d30: 'antracit', 0x6e5444: 'hnědá', 0x8a8f94: 'šedá', 0xf2f0eb: 'bílá', 0x5b3d2a: 'ořech', 0x3a3c40: 'antracit', 0x8a6a4c: 'dub' };
+// ---------- fasáda z fotky: 4 rohy stěny → homografie → narovnaná textura; okna a dveře jako obdélníky v (u, v) ----------
+function homography(src, dst) {   // čtyři dvojice (u, v) → (x, y), h33 = 1, Gauss s výběrem pivotu
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) { const [u, v] = src[i], [x, y] = dst[i]; A.push([u, v, 1, 0, 0, 0, -u * x, -v * x]); b.push(x); A.push([0, 0, 0, u, v, 1, -u * y, -v * y]); b.push(y); }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    const d = A[c][c]; if (Math.abs(d) < 1e-12) return null;
+    for (let r = 0; r < 8; r++) if (r !== c) { const f = A[r][c] / d; if (!f) continue; for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+  }
+  const h = b.map((v, i) => v / A[i][i]);
+  return (u, v) => { const w = h[6] * u + h[7] * v + 1; return [(h[0] * u + h[1] * v + h[2]) / w, (h[3] * u + h[4] * v + h[5]) / w]; };
+}
+// výstup: u 0…1 zleva doprava, v 0…vmax zdola (první řádek je nahoře, v = vmax); mimo fotku průhledné
+function rectify(src, corners, vmax, W, Hh) {
+  const Hm = homography([[0, 0], [1, 0], [1, 1], [0, 1]], corners), out = new ImageData(W, Hh);
+  if (!Hm) return out;
+  const o = out.data, d = src.data, sw = src.width, sh = src.height;
+  for (let j = 0; j < Hh; j++) {
+    const v = vmax * (1 - (j + 0.5) / Hh);
+    for (let i = 0; i < W; i++) {
+      const [x, y] = Hm((i + 0.5) / W, v), xa = Math.floor(x - 0.5), ya = Math.floor(y - 0.5), fx = x - 0.5 - xa, fy = y - 0.5 - ya, q = (i + W * j) * 4;
+      if (!(xa >= 0 && ya >= 0 && xa + 1 < sw && ya + 1 < sh)) continue;
+      const a = (xa + sw * ya) * 4, b = a + 4, c = a + sw * 4, e = c + 4;
+      for (let k = 0; k < 3; k++) o[q + k] = (d[a + k] * (1 - fx) + d[b + k] * fx) * (1 - fy) + (d[c + k] * (1 - fx) + d[e + k] * fx) * fy;
+      o[q + 3] = 255;
+    }
+  }
+  return out;
+}
+const FAS = { side: null, src: null, img: null, corners: null, openings: [], mode: 'w', vmax: 1.5, W: 10, Hw: 6, s: 1, drag: -1, rect: null, raf: 0, cssW: 440, cssH: 300 };
+const FAS_NAMES = { '+z': 'Čelo domu', '-x': 'Levá strana', '+x': 'Pravá strana', '-z': 'Zadní strana' };
+function fasLoad(file) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Fotku se nepodařilo načíst.')); im.src = typeof file === 'string' ? file : URL.createObjectURL(file); });
+}
+function fasOpen(side, im) {
+  const f = (H.spec.facades || {})[side];
+  let src = f && !im ? f.src : null;
+  if (!src) {   // fotka zmenšená na nejvýš 2048 px (rychlé narovnání, menší aliasing)
+    const k = Math.min(1, 2048 / Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)), cv = document.createElement('canvas');
+    cv.width = Math.round((im.naturalWidth || im.width) * k); cv.height = Math.round((im.naturalHeight || im.height) * k);
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, cv.width, cv.height);
+    src = { cv, data: g.getImageData(0, 0, cv.width, cv.height) };
+  }
+  const [x0, x1, z0, z1] = H.info.bbox, w = src.cv.width, h = src.cv.height;
+  Object.assign(FAS, { side, src, mode: 'w', drag: -1, rect: null, W: side[1] === 'z' ? x1 - x0 : z1 - z0, Hw: H.info.eave });
+  FAS.vmax = f && !im ? f.vmax : Math.max(1.1, (H.info.roofMax + 0.4) / H.info.eave);
+  FAS.corners = f && !im ? f.corners.map(c => c.slice()) : [[w * 0.14, h * 0.86], [w * 0.86, h * 0.86], [w * 0.86, h * 0.34], [w * 0.14, h * 0.34]];
+  FAS.openings = f && !im ? f.openings.map(o => ({ ...o })) : [];
+  $('fasTitle').textContent = FAS_NAMES[side] || 'Stěna'; $('fasDel').hidden = !f;
+  $('fasEd').hidden = false; $('fasEd').focus(); fasLayout(); fasDraw(true);
+}
+function fasLayout() {
+  const dpr = Math.min(2, devicePixelRatio || 1), { cv } = FAS.src, sc = $('fasSrc'), oc = $('fasOut');
+  const maxW = Math.max(300, Math.min(760, innerWidth - 560)), maxH = Math.max(240, innerHeight - 160), s = Math.min(maxW / cv.width, maxH / cv.height);
+  FAS.s = s; sc.style.width = `${Math.round(cv.width * s)}px`; sc.style.height = `${Math.round(cv.height * s)}px`;
+  sc.width = Math.round(cv.width * s * dpr); sc.height = Math.round(cv.height * s * dpr);
+  const asp = FAS.W / (FAS.Hw * FAS.vmax); let ow = 440, oh = ow / asp; if (oh > maxH - 120) { oh = Math.max(160, maxH - 120); ow = oh * asp; }
+  FAS.cssW = ow; FAS.cssH = oh; oc.style.width = `${Math.round(ow)}px`; oc.style.height = `${Math.round(oh)}px`; oc.width = Math.round(ow * dpr); oc.height = Math.round(oh * dpr);
+}
+function fasDraw(full) {
+  const sc = $('fasSrc'), g = sc.getContext('2d'), k = sc.width / FAS.src.cv.width;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(FAS.src.cv, 0, 0, sc.width, sc.height);
+  const P = FAS.corners.map(([x, y]) => [x * k, y * k]), dpr = sc.width / parseFloat(sc.style.width);
+  g.lineWidth = 2 * dpr; g.strokeStyle = '#ffc23a'; g.setLineDash([6 * dpr, 4 * dpr]); g.beginPath(); P.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke(); g.setLineDash([]);
+  P.forEach(([x, y], i) => { g.fillStyle = FAS.drag === i ? '#fff2e2' : '#ffc23a'; g.beginPath(); g.arc(x, y, 11 * dpr, 0, 7); g.fill(); g.fillStyle = '#1b1206'; g.font = `700 ${13 * dpr}px Barlow, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(i + 1), x, y + 0.5); });
+  cancelAnimationFrame(FAS.raf); FAS.raf = requestAnimationFrame(() => fasPreview(full));
+}
+function fasPreview(full) {
+  const oc = $('fasOut'), g = oc.getContext('2d'), dpr = oc.width / FAS.cssW, scl = full ? 1 : 0.5;
+  const W = Math.max(8, Math.round(oc.width * scl)), Hh = Math.max(8, Math.round(oc.height * scl));
+  const im = rectify(FAS.src.data, FAS.corners, FAS.vmax, W, Hh), t = document.createElement('canvas'); t.width = W; t.height = Hh; t.getContext('2d').putImageData(im, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#0c0a18'; g.fillRect(0, 0, oc.width, oc.height); g.drawImage(t, 0, 0, oc.width, oc.height);
+  const X = u => u * oc.width, Y = v => (1 - v / FAS.vmax) * oc.height;
+  g.strokeStyle = 'rgba(255,242,226,.75)'; g.lineWidth = 1.5 * dpr; g.setLineDash([5 * dpr, 4 * dpr]); g.beginPath(); g.moveTo(0, Y(1)); g.lineTo(oc.width, Y(1)); g.stroke(); g.setLineDash([]);
+  for (const o of [...FAS.openings, ...(FAS.rect ? [FAS.rect] : [])]) {
+    const c = o.t === 'd' ? '255,140,60' : '80,200,255';
+    g.fillStyle = `rgba(${c},.22)`; g.strokeStyle = `rgb(${c})`; g.lineWidth = 2 * dpr;
+    const x = X(Math.min(o.u0, o.u1)), y = Y(Math.max(o.v0, o.v1)), w = Math.abs(X(o.u1) - X(o.u0)), h = Math.abs(Y(o.v1) - Y(o.v0));
+    g.fillRect(x, y, w, h); g.strokeRect(x, y, w, h);
+  }
+  const n = FAS.openings.length, nd = FAS.openings.filter(o => o.t === 'd').length;
+  $('fasInfo').textContent = n ? `Označeno: ${n - nd} ${n - nd === 1 ? 'okno' : n - nd < 5 ? 'okna' : 'oken'}, ${nd} ${nd === 1 ? 'dveře' : 'dveří'}.` : '';
+}
+function fasNorm(o) { return { u0: clamp(Math.min(o.u0, o.u1), 0, 1), u1: clamp(Math.max(o.u0, o.u1), 0, 1), v0: clamp(Math.min(o.v0, o.v1), 0, FAS.vmax), v1: clamp(Math.max(o.v0, o.v1), 0, FAS.vmax), t: o.t }; }
+// narovnaná textura v plném rozlišení; zisk srovná střední jas pod okapem (mimo otvory) na světlou omítku, fotka nese vlastní nasvícení
+function fasBake() {
+  let W = 1024, Hh = Math.round(1024 * FAS.Hw * FAS.vmax / FAS.W); if (Hh > 1024) { W = Math.round(W * 1024 / Hh); Hh = 1024; }
+  const im = rectify(FAS.src.data, FAS.corners, FAS.vmax, W, Math.max(16, Hh)), d = im.data; Hh = im.height;
+  let sum = 0, n = 0; const lin = [0, 0, 0], sr = [0, 0, 0];
+  for (let j = 0; j < Hh; j += 2) {
+    const v = FAS.vmax * (1 - (j + 0.5) / Hh); if (v > 1 || v < 0.08) continue;   // bez soklu
+    for (let i = 0; i < W; i += 2) {
+      const q = (i + W * j) * 4, u = (i + 0.5) / W; if (!d[q + 3]) continue;
+      if (FAS.openings.some(o => u >= o.u0 - 0.01 && u <= o.u1 + 0.01 && v >= o.v0 - 0.02 && v <= o.v1 + 0.02)) continue;
+      sum += 0.2126 * LIN8[d[q]] + 0.7152 * LIN8[d[q + 1]] + 0.0722 * LIN8[d[q + 2]]; n++;
+      for (let c = 0; c < 3; c++) { lin[c] += LIN8[d[q + c]]; sr[c] += d[q + c]; }
+    }
+  }
+  // nad okapem: co navazuje na horní okraj a nepodobá se zdi (obloha, střecha fotky), je mimo stěnu → průhledné
+  if (n) {
+    const m = sr.map(v => v / n), jE = Math.floor((1 - 1 / FAS.vmax) * Hh), far = q => !d[q + 3] || (d[q] - m[0]) ** 2 + (d[q + 1] - m[1]) ** 2 + (d[q + 2] - m[2]) ** 2 > 45 * 45;
+    const seen = new Uint8Array(W * Hh), st = [];
+    const push = (i, j) => { const p = i + W * j; if (seen[p] || j >= jE || !far(p * 4)) return; seen[p] = 1; st.push(p); };
+    for (let i = 0; i < W; i++) push(i, 0);
+    for (let j = 0; j < jE - 2; j++) { push(0, j); push(W - 1, j); }
+    while (st.length) { const p = st.pop(), i = p % W, j = (p - i) / W; d[p * 4 + 3] = 0; if (i > 0) push(i - 1, j); if (i < W - 1) push(i + 1, j); if (j > 0) push(i, j - 1); if (j < Hh - 1) push(i, j + 1); }
+  }
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = Hh; cv.getContext('2d').putImageData(im, 0, 0);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  const gain = n ? clamp(0.45 / (sum / n), 0.6, 2.2) : 1, pa = photoAvg('plaster'), pm = pa ? 0.2126 * pa.r + 0.7152 * pa.g + 0.0722 * pa.b : 0.6;
+  const avg = n ? new THREE.Vector3(...lin.map(v => Math.min(1.6, v / n * gain / pm))) : new THREE.Vector3(1, 1, 1);   // náhradní omítka: tpC × avg ≈ průměr zdi z fotky
+  return { tex, gain, avg, canvas: cv };
+}
+function fasApply() {
+  const { tex, gain, avg, canvas } = fasBake(), fs = H.spec.facades || (H.spec.facades = {}), old = fs[FAS.side];
+  if (old && old.tex) old.tex.dispose();
+  fs[FAS.side] = { src: FAS.src, corners: FAS.corners.map(c => c.slice()), openings: FAS.openings.map(fasNorm), vmax: FAS.vmax, tex, gain, avg, canvas };
+  H.spec.facade = new THREE.Color(Math.min(1, avg.x), Math.min(1, avg.y), Math.min(1, avg.z)).getHex();   // strany bez fotky v barvě z fotky (Color je lineární, getHex vrací sRGB)
+  fasClose(); editChanged();
+}
+function fasClose() { $('fasEd').hidden = true; cancelAnimationFrame(FAS.raf); }
+function setupFacades() {
+  const sc = $('fasSrc'), oc = $('fasOut');
+  const srcPt = e => { const r = sc.getBoundingClientRect(); return [(e.clientX - r.left) / FAS.s, (e.clientY - r.top) / FAS.s]; };
+  sc.addEventListener('pointerdown', e => {
+    const [x, y] = srcPt(e); let best = -1, bd = (22 / FAS.s) ** 2;
+    FAS.corners.forEach(([cx, cy], i) => { const d2 = (cx - x) ** 2 + (cy - y) ** 2; if (d2 < bd) { bd = d2; best = i; } });
+    if (best < 0) return; FAS.drag = best; sc.setPointerCapture(e.pointerId); sc.style.cursor = 'grabbing'; fasDraw(false);
+  });
+  sc.addEventListener('pointermove', e => {
+    if (FAS.drag < 0) return; const [x, y] = srcPt(e), { width: w, height: h } = FAS.src.cv;
+    FAS.corners[FAS.drag] = [clamp(x, -0.25 * w, 1.25 * w), clamp(y, -0.25 * h, 1.25 * h)]; fasDraw(false);
+  });
+  const endDrag = () => { if (FAS.drag < 0) return; FAS.drag = -1; sc.style.cursor = ''; fasDraw(true); };
+  sc.addEventListener('pointerup', endDrag); sc.addEventListener('pointercancel', endDrag);
+  const outPt = e => { const r = oc.getBoundingClientRect(); return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp(FAS.vmax * (1 - (e.clientY - r.top) / r.height), 0, FAS.vmax)]; };
+  oc.addEventListener('pointerdown', e => { const [u, v] = outPt(e); FAS.rect = { u0: u, u1: u, v0: v, v1: v, t: FAS.mode }; oc.setPointerCapture(e.pointerId); });
+  oc.addEventListener('pointermove', e => { if (!FAS.rect) return; const [u, v] = outPt(e); FAS.rect.u1 = u; FAS.rect.v1 = v; fasPreview(false); });
+  oc.addEventListener('pointerup', e => {
+    const R = FAS.rect; FAS.rect = null; if (!R) return;
+    const o = fasNorm(R);
+    if (o.u1 - o.u0 > 0.015 && o.v1 - o.v0 > 0.03) FAS.openings.push(o);
+    else { const [u, v] = outPt(e), i = FAS.openings.findLastIndex(q => u >= q.u0 && u <= q.u1 && v >= q.v0 && v <= q.v1); if (i >= 0) FAS.openings.splice(i, 1); }
+    fasPreview(true);
+  });
+  $('fasMode').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; FAS.mode = b.dataset.v; for (const x of $('fasMode').querySelectorAll('[data-v]')) x.setAttribute('aria-pressed', String(x === b)); });
+  $('fasUndo').addEventListener('click', () => { FAS.openings.pop(); fasPreview(true); });
+  $('fasOk').addEventListener('click', fasApply);
+  $('fasCancel').addEventListener('click', fasClose);
+  $('fasDel').addEventListener('click', () => { const fs = H.spec.facades || {}, f = fs[FAS.side]; if (f && f.tex) f.tex.dispose(); delete fs[FAS.side]; fasClose(); editChanged(); });
+  $('fasEd').addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); fasClose(); } });
+  addEventListener('resize', () => { if (!$('fasEd').hidden) { fasLayout(); fasDraw(true); } });
+  $('edFac').addEventListener('click', e => {
+    const b = e.target.closest('[data-s]'); if (!b) return; const sd = b.dataset.s;
+    if ((H.spec.facades || {})[sd]) fasOpen(sd, null); else { FAS.pend = sd; $('edFacFile').value = ''; $('edFacFile').click(); }
+  });
+  $('edFacFile').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0]; if (!f || !FAS.pend) return;
+    try { fasOpen(FAS.pend, await fasLoad(f)); } catch (err) { $('edErr').textContent = err.message; $('edErr').hidden = false; }
+  });
+}
 function setupEditor() {
   for (const [id, key] of [['edFacade', 'facade'], ['edRoofCol', 'roofCol'], ['edFrames', 'frames']]) {
     $(id).innerHTML = SW[key].map(c => `<button type="button" class="swb" data-c="${c}" style="background:#${c.toString(16).padStart(6, '0')}" aria-label="${swName[c] || ''}" aria-pressed="false"></button>`).join('');
@@ -4607,6 +4863,7 @@ function setupEditor() {
   for (const [id, key, num] of [['edFloors', 'floors', true], ['edRoof', 'roof', false], ['edRidge', 'ridge', false]])
     $(id).addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; H.spec[key] = num ? +b.dataset.v : b.dataset.v; editChanged(); });
   $('edRoofOrtho').addEventListener('click', () => { H.spec.roofOrtho = true; editChanged(); });
+  setupFacades();
   $('edSun').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; H.spec.sunPhoto = b.dataset.v === '1'; editChanged(); });
   $('edPitch').addEventListener('input', e => { H.spec.pitch = +e.target.value; $('edPitchV').textContent = H.spec.pitch + '°'; editChanged(); });
   $('edGo').addEventListener('click', () => { Snd.init(); housePlay(false); });
@@ -4626,6 +4883,7 @@ function syncEditor() {
   $('edPitch').value = s.pitch; $('edPitchV').textContent = Math.round(s.pitch) + '°';
   $('edPitchRow').hidden = s.roof === 'flat';
   $('edRoofOrtho').hidden = !ORTHO_U.k.value; $('edRoofOrtho').setAttribute('aria-pressed', String(!!s.roofOrtho));
+  for (const b of $('edFac').children) b.setAttribute('aria-pressed', String(!!(s.facades && s.facades[b.dataset.s])));
   $('edSunRow').hidden = !(houseCtx && houseCtx.sun); for (const b of $('edSun').children) b.setAttribute('aria-pressed', String(b.dataset.v === (s.sunPhoto ? '1' : '0')));
   if (s.roofOrtho) for (const b of $('edRoofCol').children) b.setAttribute('aria-pressed', 'false'); $('edRidgeRow').hidden = s.roof !== 'gable';
   $('edErr').hidden = true;
@@ -4825,6 +5083,15 @@ window.kaskada = {
       }
       return cv.toDataURL('image/png');
     },
+    async facade(side, url, corners, openings, ui) {   // test: fotka stěny bez klikání (corners v pixelech fotky: LD, PD, PH, LH)
+      fasOpen(side, await fasLoad(url));
+      if (corners) FAS.corners = corners.map(c => c.slice());
+      if (openings) FAS.openings = openings.map(o => ({ ...o }));
+      fasDraw(true); if (ui) return { s: FAS.s, vmax: FAS.vmax, W: FAS.W, Hw: FAS.Hw };
+      fasApply(); const f = H.spec.facades[side];
+      return { vmax: f.vmax, gain: +f.gain.toFixed(3), tex: [f.canvas.width, f.canvas.height], panes: H.panes.length, entry: !!H.info.entry, spawn: H.spawn.p.toArray().map(v => +v.toFixed(2)) };
+    },
+    facadeTex(side) { const f = (H.spec.facades || {})[side]; return f ? f.canvas.toDataURL('image/png') : null; },
     orthoInfo: () => Object.fromEntries(Object.entries(ORTHO_U).map(([k, u]) => [k, u.value && u.value.isTexture ? `${u.value.constructor.name} ${u.value.image && u.value.image.width}` : u.value && u.value.toArray ? u.value.toArray() : u.value])),
     envTint(r, g, b) { ENV_TINT.setRGB(r, g, b); if (dayEnv) { dayEnv.dispose(); dayEnv = null; } scene.environment = getDayEnv(); },
     lightCal() {   // ozáření vodorovné bílé plochy (lineárně): obloha (env + hemi) vs. slunce
