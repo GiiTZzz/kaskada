@@ -8,12 +8,19 @@ map a ty ho z první osoby rozebereš na cihly, prkna a peří.
 - Po spuštění se ukáže mapa. Najdi adresu nebo klikni na svůj dům a dej **Bourat tento dům**.
 - V editoru doladíš patra, střechu a barvy. Ke každé straně domu můžeš nahrát fotku stěny: přetáhneš
   4 rohy, tažením označíš okna a dveře a hra je vyřeže přesně tam, kde jsou na fotce.
-- `W A S D` chůze, myš rozhlížení, levé tlačítko nářadí, `1`–`5` nebo kolečko výběr nářadí
-- kladivo (omítka, cihly, dřevo), perlík (i beton), sbíječka (všechno, přesně), nálože (`E` odpálí), bourací koule
+- `W A S D` chůze, myš rozhlížení, levé tlačítko nářadí, `1`–`6` nebo kolečko výběr nářadí
+- kladivo (omítka, cihly, dřevo), perlík (i beton; podrž tlačítko a rána je silnější), sbíječka (všechno, přesně),
+  nálože (`E` odpálí), bourací koule, pila (úzký řez skrz celou zeď: obkroužený kus vypadne)
 - `F` létání (mezerník nahoru, `C` dolů), `Esc` pauza
+- V kuchyni a na půdě stojí plynové lahve. Rána kladivem ulomí ventil: lahev syčí, vystřelí po podlaze a za pár
+  vteřin bouchne. Výbuch odpálí lahve, sudy a nálože kolem, takže vzniknou řetězové reakce.
+- Body se počítají za zbořený objem a za události (okna, nábytek, zřícení, výbuchy, řetězovky). Rychle za sebou
+  jdoucí události zvedají násobič komba, velké řetězovky zpomalí čas. Na konci je hodnocení, nejbizarnější
+  destrukce a rekord domu.
 
 Okolní domy mají okna po patrech, dveře do ulice a střechy z leteckého snímku, kolem rostou skutečné stromy
-(listnáče, jasany, ovocné stromy, smrky a břízy) tam, kde je hra najde na snímku a ve výškopisu.
+(listnáče, jasany, ovocné stromy, smrky a břízy) tam, kde je hra najde na snímku a ve výškopisu. Ploty, zídky
+a živé ploty stojí na hranicích pozemků do ulice podle katastru, podél silnic svítí lampy.
 
 Zdi a stropy jsou z 10cm kostek (omítka navrchu, uvnitř cihla a beton). Nábytek je ze skutečných modelů
 a rozpadá se po dílech podle materiálu: postel na rám, matraci a peřinu, ze které se vysype peří.
@@ -22,8 +29,8 @@ květináč na hlínu a listí. Sud s výstražným znakem na půdě vybuchne. V
 mapa ho nezná.
 
 V Česku si hra k domu sama dotáhne data ČÚZK: ortofoto (zem kolem domu, krytina střech, stromy, slunce podle
-stínů na snímku), registr budov RÚIAN (druh konstrukce, číslo popisné) a výškopis (tvar, sklon a výška střechy,
-výšky sousedů, skutečný terén kolem domu až k obzoru).
+stínů na snímku), registr budov a parcel RÚIAN (druh konstrukce, číslo popisné, hranice pozemků pro ploty)
+a výškopis (tvar, sklon a výška střechy, výšky sousedů, skutečný terén kolem domu až k obzoru).
 
 ## Jak to běží
 

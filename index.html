@@ -135,6 +135,13 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 .tool.on{background:var(--hazard);color:#3b2a0c}
 .tool.on b{color:#1b1206}
 .hhud .evt{font-size:22px}
+.hsc{display:flex;align-items:baseline;gap:8px;font:800 30px/1 var(--f-display)}
+.hsc small{font:600 12px var(--f-ui);color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+.hmult{font:800 20px/1 var(--f-display);color:#fff;background:linear-gradient(180deg,#ff5a46,#cf2a1d);padding:3px 8px 4px;border-radius:6px;opacity:.3;transition:opacity .2s}
+.hmult i{font-style:normal}
+.hmult.on{opacity:1}
+.combo{width:150px;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
+.combo i{display:block;height:100%;width:0;background:#ff5a46;transition:width .2s linear}
 .lockhint{position:absolute;left:50%;top:calc(50% + 30px);transform:translateX(-50%);font:600 15px var(--f-ui);background:var(--panel);padding:8px 14px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--edge);white-space:nowrap}
 .editor{position:fixed;left:max(16px,env(safe-area-inset-left,0px));top:16px;bottom:16px;width:min(372px,calc(100vw - 32px));overflow:auto;background:rgba(22,16,40,.86);border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.4),inset 0 0 0 1px var(--edge);padding:20px 20px 18px;display:grid;gap:15px;align-content:start;box-sizing:border-box}
 .editor .head{font-size:44px}
@@ -213,11 +220,13 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
     <div class="lvl"><b>Bourání domu</b> · <span id="hName"></span></div>
     <div class="score"><span id="hPct">0</span><small>% zbořeno</small></div>
     <div class="bar"><i id="hBar"></i></div>
+    <div class="hsc"><b id="hScore">0</b><small>bodů</small><span class="hmult" id="hMultBox">×<i id="hMult">1</i></span></div>
+    <div class="combo" aria-hidden="true"><i id="hCombo"></i></div>
     <div class="run" id="hInfo"></div>
   </div>
   <div class="tr"><div class="mode" id="hFly"></div></div>
   <div class="bc"><div class="evt" id="hEvt"></div><div class="tools" id="tools"></div></div>
-  <div class="bl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> chůze · myš rozhlížení · <b>levé tlačítko</b> nářadí · <kbd>1</kbd>–<kbd>5</kbd> nebo kolečko výběr · <kbd>E</kbd> odpálit nálože · <kbd>Esc</kbd> pauza</div>
+  <div class="bl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> chůze · myš rozhlížení · <b>levé tlačítko</b> nářadí · <kbd>1</kbd>–<kbd>6</kbd> nebo kolečko výběr · <kbd>E</kbd> odpálit nálože · <kbd>Esc</kbd> pauza</div>
   <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a><span id="hCz" hidden> · ortofoto, RÚIAN a výškopis © <a href="https://cuzk.gov.cz" target="_blank" rel="noopener">ČÚZK</a> (CC BY 4.0)</span> · </span><span id="hEngine"></span></div>
   <div class="lockhint" id="lockHint" hidden>Klikni do hry a rozhlížej se myší</div>
 </div>
@@ -439,9 +448,10 @@ function rapierPhysics(R) {
       world.createCollider(cd(s).setDensity(o.density).setFriction(o.friction ?? 0.75).setRestitution(o.restitution ?? 0.04), b);
       return b;
     },
-    pos: b => b.translation(), rot: b => b.rotation(), vel: b => b.linvel(),
+    pos: b => b.translation(), rot: b => b.rotation(), vel: b => b.linvel(), angVel: b => b.angvel(), mass: b => b.mass(),
     setVel(b, v) { b.setLinvel(v, true); }, setAngVel(b, v) { b.setAngvel(v, true); },
     impulse(b, v) { b.applyImpulse(v, true); },
+    impulseAt(b, v, p) { b.applyImpulseAtPoint(v, p, true); },
     damping(b, l, a) { b.setLinearDamping(l); b.setAngularDamping(a); },
     sleeping: b => b.isSleeping(),
     remove(b) { world.removeRigidBody(b); },
@@ -484,10 +494,11 @@ function cannonPhysics(C) {
       world.addBody(b); if (o.sleeping) b.sleep();
       return b;
     },
-    pos: b => b.position, rot: b => b.quaternion, vel: b => b.velocity,
+    pos: b => b.position, rot: b => b.quaternion, vel: b => b.velocity, angVel: b => b.angularVelocity, mass: b => b.mass,
     setVel(b, v) { b.wakeUp(); b.velocity.set(v.x, v.y, v.z); },
     setAngVel(b, v) { b.angularVelocity.set(v.x, v.y, v.z); },
     impulse(b, v) { b.wakeUp(); b.applyImpulse(new C.Vec3(v.x, v.y, v.z)); },
+    impulseAt(b, v, p) { b.wakeUp(); b.applyImpulse(new C.Vec3(v.x, v.y, v.z), new C.Vec3(p.x - b.position.x, p.y - b.position.y, p.z - b.position.z)); },
     damping(b, l, a) { b.linearDamping = l; b.angularDamping = a; },
     sleeping: b => b.sleepState === C.Body.SLEEPING,
     remove(b) { world.removeBody(b); },
@@ -1117,7 +1128,7 @@ gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings
 composer.addPass(gtao);
 // GTAO kreslí normály a hloubku přes MeshNormalMaterial bez alpha testu: listí a impostory stromů by v něm byly plné
 // obdélníky a v mlze u obzoru svítily jako krabice. Stromy z tohoto průchodu vyřaď (stejně jako GTAO sám vyřazuje body).
-{ const hide = gtao._overrideVisibility.bind(gtao); gtao._overrideVisibility = function () { hide(); for (const m of TREE.meshes) if (m.visible) { m.visible = false; this._visibilityCache.push(m); } }; }
+{ const hide = gtao._overrideVisibility.bind(gtao); gtao._overrideVisibility = function () { hide(); for (const m of [...TREE.meshes, ...STREET.meshes.filter(f => f.userData.noAO)]) if (m.visible) { m.visible = false; this._visibilityCache.push(m); } }; }
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.75, 0.55, 1.15);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -1248,6 +1259,7 @@ function popup(text, pos, cls) {
   const el = document.createElement('div'); el.className = 'pop ' + cls; el.textContent = text; $('pops').appendChild(el);
   pops.push({ el, text, n: 1, p: V3(pos.x, pos.y, pos.z), age: 0, life: cls === 's' ? 0.8 : 1.25 });
 }
+function clearPops() { for (const o of pops) o.el.remove(); pops.length = 0; }
 function updatePops(dt) {
   for (let k = pops.length - 1; k >= 0; k--) {
     const o = pops[k]; o.age += dt; const t = o.age / o.life;
@@ -2160,7 +2172,7 @@ function drawTreesBlob(pts, r) {   // záloha z koulí, než se načtou modely
 // ---------- stromy z ez-tree (MIT), vygenerované předem (`tools/trees/gen.mjs`), geometrie v meshopt ----------
 // U domu celé stromy po instancích (stín, vítr), dál „nafocené" impostory: dva zkřížené obdélníky s albedem stromu (3d/19).
 const TREE_KINDS = ['listnac', 'jasan', 'ovocny', 'smrk', 'briza'];
-const TREE = { protos: null, loading: null, pts: null, meshes: [], near: 60, time: { value: 0 } };
+const TREE = { protos: null, loading: null, pts: null, meshes: [], near: 30, mid: 55, time: { value: 0 } };
 function treeLoad() {
   if (TREE.loading) return TREE.loading;
   const ld = new GLTFLoader(); ld.setMeshoptDecoder(MeshoptDecoder);
@@ -2199,6 +2211,24 @@ function treeProto(root) {
           transformed.z += cos(uTime * 1.1 + ph * 1.7) * 0.009 * transformed.y * transformed.y;
         #endif`);
   }; m.customProgramCacheKey = () => 'tree-sway'; return m; };
+  // střední vzdálenost: třetina lístků (lístek = komponenta spojená sdílenými vrcholy, gltfpack trojúhelníky přeházel), zbylé o 65 % větší
+  const leafLo = (() => {
+    const idx = leafGeo.index.array, P = leafGeo.attributes.position, n = P.count, par = new Int32Array(n);
+    for (let i = 0; i < n; i++) par[i] = i;
+    const f = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; }, un = (a, b) => { a = f(a); b = f(b); if (a !== b) par[b] = a; };
+    for (let t = 0; t < idx.length; t += 3) { un(idx[t], idx[t + 1]); un(idx[t], idx[t + 2]); }
+    const cen = new Map();
+    for (let i = 0; i < n; i++) { const r = f(i); let c = cen.get(r); if (!c) cen.set(r, c = [0, 0, 0, 0]); c[0] += P.getX(i); c[1] += P.getY(i); c[2] += P.getZ(i); c[3]++; }
+    const out = { position: [], normal: [], uv: [] }, Nn = leafGeo.attributes.normal, Uv = leafGeo.attributes.uv;
+    for (let t = 0; t < idx.length; t += 3) {
+      const r = f(idx[t]); if ((Math.imul(r, 2654435761) >>> 0) % 3) continue;
+      const c = cen.get(r);
+      for (let k = 0; k < 3; k++) { const i = idx[t + k], cx = c[0] / c[3], cy = c[1] / c[3], cz = c[2] / c[3];
+        out.position.push(cx + (P.getX(i) - cx) * 1.65, cy + (P.getY(i) - cy) * 1.65, cz + (P.getZ(i) - cz) * 1.65); out.normal.push(Nn.getX(i), Nn.getY(i), Nn.getZ(i)); if (Uv) out.uv.push(Uv.getX(i), Uv.getY(i)); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(out.position, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(out.normal, 3));
+    if (out.uv.length) g.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2)); g.computeBoundingSphere(); return g;
+  })();
   const barkMat = sway(new THREE.MeshStandardMaterial({ map: maps.bark || null, roughness: 0.92 }));
   const leafMat = sway(new THREE.MeshStandardMaterial({ map: maps.leaves || null, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.78 }));
   // impostor: albedo zepředu a z boku do jednoho plátna 512 × 256, sRGB, s mipmapami
@@ -2218,7 +2248,7 @@ function treeProto(root) {
   for (const [g, u0] of [[a, 0], [b, 0.5]]) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, u0 + uv.getX(i) * 0.5); const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); }
   const impGeo = mergeGeometries([a, b]);
   const impMat = new THREE.MeshStandardMaterial({ map: rt.texture, alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.9 });
-  return { barkGeo, leafGeo, barkMat, leafMat, impGeo, impMat, rt };
+  return { barkGeo, leafGeo, leafLo, barkMat, leafMat, impGeo, impMat, rt };
 }
 function drawTrees(pts, r) {
   TREE.pts = pts;
@@ -2227,21 +2257,166 @@ function drawTrees(pts, r) {
   pts = pts.slice(0, 700);
   if (!TREE.protos) { treeLoad(); drawTreesBlob(pts, r || rng(7)); return; }
   trunks.count = crowns.count = 0; trunks.instanceMatrix.needsUpdate = crowns.instanceMatrix.needsUpdate = true;
-  const near = TREE_KINDS.map(() => []), far = TREE_KINDS.map(() => []), cx = H.center ? H.center.x : 0, cz = H.center ? H.center.z : 0;
+  const lod = [0, 1, 2].map(() => TREE_KINDS.map(() => [])), cx = H.center ? H.center.x : 0, cz = H.center ? H.center.z : 0;
   for (const [x, z, h] of pts) {
     const hs = (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1, f = Math.abs(hs);
     // nízké stromy v zahradách ovocné nebo břízy, vyšší listnáče, smrky a břízy
-    const k = h < 6 ? (f < 0.7 ? 2 : 4) : f < 0.42 ? 0 : f < 0.66 ? 1 : f < 0.82 ? 3 : 4;
-    (Math.hypot(x - cx, z - cz) < TREE.near ? near : far)[k].push([x, z, h, f]);
+    const k = h < 6 ? (f < 0.7 ? 2 : 4) : f < 0.42 ? 0 : f < 0.66 ? 1 : f < 0.82 ? 3 : 4, d = Math.hypot(x - cx, z - cz);
+    lod[d < TREE.near ? 0 : d < TREE.mid ? 1 : 2][k].push([x, z, h, f]);
   }
-  const put = (m, list) => {
+  // celé stromy blízko (stín jen v dosahu stínové kamery kolem domu), dál třetina listí, nejdál impostory; střední a daleké
+  // po kvadrantech kolem domu, ať se ořez podle pohledu uplatní a draw callů nepřibude moc
+  const sr = (key.shadow.camera.right || 16) + 14;
+  const put = (geo, mat, list, shadow) => {
+    const m = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach(([x, z, h, f], i) => { const w = h * (0.85 + 0.3 * ((f * 7.31) % 1)); _m.compose(_p.set(x, gH(x, z) - 0.15, z), _q.setFromAxisAngle(_up, f * 6.283), _s.set(w, h, w)); m.setMatrixAt(i, _m); });
-    m.instanceMatrix.needsUpdate = true; m.frustumCulled = false; ctxGroup.add(m); TREE.meshes.push(m);
+    m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); m.castShadow = shadow; m.receiveShadow = true;
+    ctxGroup.add(m); TREE.meshes.push(m);
   };
+  const split = (list, by) => { const b = new Map(); for (const t of list) { const k = by(t); if (!b.has(k)) b.set(k, []); b.get(k).push(t); } return [...b.entries()]; };
+  const quad = t => (t[0] > cx ? 1 : 0) + (t[1] > cz ? 2 : 0);
   TREE.protos.forEach((p, k) => {
-    if (near[k].length) for (const [g, mat] of [[p.barkGeo, p.barkMat], [p.leafGeo, p.leafMat]]) { const m = new THREE.InstancedMesh(g, mat, near[k].length); m.castShadow = m.receiveShadow = true; put(m, near[k]); }
-    if (far[k].length) { const m = new THREE.InstancedMesh(p.impGeo, p.impMat, far[k].length); m.receiveShadow = true; put(m, far[k]); }
+    for (const [sh, list] of split(lod[0][k], t => Math.max(Math.abs(t[0] - cx), Math.abs(t[1] - cz)) < sr)) { put(p.barkGeo, p.barkMat, list, sh); put(p.leafGeo, p.leafMat, list, sh); }
+    for (const [, list] of split(lod[1][k], quad)) { put(p.barkGeo, p.barkMat, list, false); put(p.leafLo, p.leafMat, list, false); }
+    for (const [, list] of split(lod[2][k], quad)) put(p.impGeo, p.impMat, list, false);
   });
+  TREE.lod = lod.map(l => l.reduce((a, b) => a + b.length, 0));
+}
+
+// ---------- ulice: ploty na hranicích parcel do ulice (RÚIAN) a sloupy veřejného osvětlení s dráty ----------
+// Plot stojí tam, kde soukromá parcela (zahrada, zastavěná plocha) sousedí se silniční; kde na hranici stojí dům, plot není.
+// Druh plotu se střídá podle parcely. Všechno jsou sloučené sítě (pár draw callů), bez fyziky.
+const STREET = { meshes: [], mats: null };
+function furnMats() {
+  if (STREET.mats) return STREET.mats;
+  const tex = draw => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); draw(g); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
+  const r = rng(5);
+  const picket = tex(g => {   // 1 × 1 m: sedm laťek se špičkou, dvě příčky
+    for (let i = 0; i < 7; i++) { const x = (i + 0.5) * 256 / 7, w = 22, k = 0.75 + 0.25 * r(); g.fillStyle = `rgb(${150 * k | 0},${112 * k | 0},${76 * k | 0})`; g.beginPath(); g.moveTo(x - w / 2, 256); g.lineTo(x - w / 2, 24); g.lineTo(x, 4); g.lineTo(x + w / 2, 24); g.lineTo(x + w / 2, 256); g.fill(); }
+    g.fillStyle = 'rgb(112,82,54)'; g.fillRect(0, 54, 256, 16); g.fillRect(0, 200, 256, 16);
+  });
+  const bars = tex(g => { g.fillStyle = '#34383c'; for (let i = 0; i < 8; i++) g.fillRect(i * 32 + 13, 0, 6, 256); g.fillRect(0, 18, 256, 10); g.fillRect(0, 226, 256, 10); });
+  const mesh = tex(g => { g.strokeStyle = 'rgb(92,118,86)'; g.lineWidth = 3; for (let i = -8; i < 16; i++) { g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32 + 256, 256); g.stroke(); g.beginPath(); g.moveTo(i * 32, 256); g.lineTo(i * 32 + 256, 0); g.stroke(); } g.lineWidth = 5; g.beginPath(); g.moveTo(0, 3); g.lineTo(256, 3); g.stroke(); });
+  const hedge = tex(g => { g.fillStyle = '#2d4a22'; g.fillRect(0, 0, 256, 256); for (let i = 0; i < 1600; i++) { const k = 0.6 + 0.6 * r(); g.fillStyle = `rgb(${52 * k | 0},${88 * k | 0},${38 * k | 0})`; g.beginPath(); g.ellipse(r() * 256, r() * 256, 3 + 4 * r(), 2 + 3 * r(), r() * 3, 0, 6.3); g.fill(); } });
+  const cut = (map, o = {}) => { const m = new THREE.MeshStandardMaterial({ map, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8, ...o }); return m; };
+  STREET.mats = {
+    picket: cut(picket), bars: cut(bars, { roughness: 0.45, metalness: 0.5 }), mesh: cut(mesh, { roughness: 0.5, metalness: 0.4 }),
+    solid: new THREE.MeshStandardMaterial({ map: photo('plaster'), roughness: 0.9, vertexColors: true }),
+    hedge: new THREE.MeshStandardMaterial({ map: hedge, roughness: 0.95 }),
+    pole: new THREE.MeshStandardMaterial({ roughness: 0.85, vertexColors: true }),
+    wire: new THREE.LineBasicMaterial({ color: 0x26282a }),
+  };
+  return STREET.mats;
+}
+// úseky plotu: hrany soukromých parcel ležící na hranici silniční parcely, po metrech bez míst u domů
+function fenceRuns(parcels, all, keep) {
+  const road = [], cell = 10, grid = new Map(), key = (i, j) => i * 100003 + j;
+  for (const p of parcels) if (p.druh === 14 && [16, 17, 18].includes(p.vyuz)) for (const ring of p.rings) for (let i = 1; i < ring.length; i++) {
+    const sg = [...ring[i - 1], ...ring[i]]; road.push(sg);
+    for (let x = Math.floor(Math.min(sg[0], sg[2]) / cell); x <= Math.floor(Math.max(sg[0], sg[2]) / cell); x++) for (let z = Math.floor(Math.min(sg[1], sg[3]) / cell); z <= Math.floor(Math.max(sg[1], sg[3]) / cell); z++) { const k = key(x, z); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(sg); }
+  }
+  const onRoad = (x, z, dx, dz) => {
+    for (const [ax, az, bx, bz] of grid.get(key(Math.floor(x / cell), Math.floor(z / cell))) || []) {
+      const ux = bx - ax, uz = bz - az, L = Math.hypot(ux, uz); if (L < 0.3 || Math.abs((ux * dx + uz * dz) / L) < 0.97) continue;
+      const t = clamp(((x - ax) * ux + (z - az) * uz) / (L * L), 0, 1); if (Math.hypot(ax + ux * t - x, az + uz * t - z) < 0.35) return true;
+    }
+    return false;
+  };
+  const nearHouse = (x, z) => all.some(b => x > b.box[0] - 1.2 && x < b.box[1] + 1.2 && z > b.box[2] - 1.2 && z < b.box[3] + 1.2 && (inPoly(x, z, b.rings) || edgeDist(x, z, b.rings) < 1.0));
+  const runs = [], kinds = ['picket', 'mesh', 'bars', 'solid', 'hedge'], w = [0.27, 0.27, 0.16, 0.12, 0.18];
+  parcels.forEach((p, pi) => {
+    if (![5, 13, 6, 7].includes(p.druh)) return;
+    let h = Math.abs(Math.sin(pi * 12.9898 + p.rings[0][0][0] * 0.71) * 43758.5453) % 1, kind = kinds[4];
+    for (let i = 0; i < 5; i++) { if (h < w[i]) { kind = kinds[i]; break; } h -= w[i]; }
+    for (const ring of p.rings) for (let i = 1; i < ring.length; i++) {
+      const [ax, az] = ring[i - 1], [bx, bz] = ring[i], L = Math.hypot(bx - ax, bz - az); if (L < 1.2) continue;
+      const dx = (bx - ax) / L, dz = (bz - az) / L, n = Math.max(1, Math.round(L)); let start = -1;
+      for (let k = 0; k <= n; k++) {
+        const t0 = k / n, mx = ax + (bx - ax) * (t0 + 0.5 / n), mz = az + (bz - az) * (t0 + 0.5 / n);
+        const ok = k < n && Math.abs(mx) < 128 && Math.abs(mz) < 128 && !(mx > keep[0] && mx < keep[1] && mz > keep[2] && mz < keep[3]) && onRoad(mx, mz, dx, dz) && !nearHouse(mx, mz);
+        if (ok && start < 0) start = k;
+        if (!ok && start >= 0) { if (k - start >= 1) runs.push({ a: [ax + (bx - ax) * start / n, az + (bz - az) * start / n], b: [ax + (bx - ax) * k / n, az + (bz - az) * k / n], kind, seed: pi }); start = -1; }
+      }
+    }
+  });
+  return runs;
+}
+function streetFurniture(ctx, roads, keep) {
+  for (const m of STREET.meshes) { ctxGroup.remove(m); m.geometry.dispose(); }
+  STREET.meshes = [];
+  const M = furnMats(), B = {}, buf = k => B[k] ||= { P: [], N: [], U: [], C: [] };
+  const quad = (k, p, n, uv, col = [1, 1, 1]) => {   // p: 4 rohy proti směru hodinových ručiček zvenku
+    const b = buf(k);
+    for (const i of [0, 1, 2, 0, 2, 3]) { b.P.push(...p[i]); b.N.push(...n); b.U.push(...uv[i]); b.C.push(...col); }
+  };
+  // hranol podél úseku A→B: šířka t, od y0 do y1 nad terénem (obě strany a vršek), u = metry podél plotu
+  const strip = (k, A, B, u0, t, y0, y1, col) => {
+    const dx = B[0] - A[0], dz = B[1] - A[1], L = Math.hypot(dx, dz), nx = -dz / L * t / 2, nz = dx / L * t / 2, ga = gH(A[0], A[1]), gb = gH(B[0], B[1]);
+    for (const sg of [1, -1]) {
+      const a0 = [A[0] + nx * sg, ga + y0, A[1] + nz * sg], b0 = [B[0] + nx * sg, gb + y0, B[1] + nz * sg], b1 = [B[0] + nx * sg, gb + y1, B[1] + nz * sg], a1 = [A[0] + nx * sg, ga + y1, A[1] + nz * sg];
+      quad(k, sg > 0 ? [a0, b0, b1, a1] : [b0, a0, a1, b1], [nx * sg * 2 / t, 0, nz * sg * 2 / t], sg > 0 ? [[u0, y0], [u0 + L, y0], [u0 + L, y1], [u0, y1]] : [[u0 + L, y0], [u0, y0], [u0, y1], [u0 + L, y1]], col);
+    }
+    const p = [[A[0] + nx, ga + y1, A[1] + nz], [B[0] + nx, gb + y1, B[1] + nz], [B[0] - nx, gb + y1, B[1] - nz], [A[0] - nx, ga + y1, A[1] - nz]];
+    quad(k, [p[0], p[1], p[2], p[3]], [0, 1, 0], [[u0, 0], [u0 + L, 0], [u0 + L, t], [u0, t]], col);
+  };
+  const post = (k, X, Z, s, y1, col) => { const g = gH(X, Z); for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const ex = -dz * s / 2, ez = dx * s / 2, cx = X + dx * s / 2, cz = Z + dz * s / 2; quad(k, [[cx + ex, g - 0.2, cz + ez], [cx - ex, g - 0.2, cz - ez], [cx - ex, g + y1, cz - ez], [cx + ex, g + y1, cz + ez]], [dx, 0, dz], [[0, 0], [s, 0], [s, y1], [0, y1]], col); } quad(k, [[X - s / 2, g + y1, Z + s / 2], [X + s / 2, g + y1, Z + s / 2], [X + s / 2, g + y1, Z - s / 2], [X - s / 2, g + y1, Z - s / 2]], [0, 1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], col); };
+  const panel = (k, A, B, u0, y0, y1) => {   // průhledná výplň (laťky, tyče, pletivo), oboustranná
+    const L = Math.hypot(B[0] - A[0], B[1] - A[1]), ga = gH(A[0], A[1]), gb = gH(B[0], B[1]), dx = (B[0] - A[0]) / L, dz = (B[1] - A[1]) / L;
+    quad(k, [[A[0], ga + y0, A[1]], [B[0], gb + y0, B[1]], [B[0], gb + y1, B[1]], [A[0], ga + y1, A[1]]], [-dz, 0, dx], [[u0, 0], [u0 + L, 0], [u0 + L, 1], [u0, 1]]);
+  };
+  const concrete = [0.62, 0.61, 0.58], wood = [0.42, 0.31, 0.21], dark = [0.2, 0.21, 0.22], green = [0.25, 0.33, 0.23];
+  const runs = ctx.parcels ? fenceRuns(ctx.parcels, ctx.all, keep) : [];
+  for (const { a, b, kind, seed } of runs) {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.round(L / 2.5)), wall = [[0.86, 0.82, 0.74], [0.78, 0.74, 0.68], [0.9, 0.88, 0.84]][seed % 3];
+    for (let i = 0; i < n; i++) {
+      const A = [a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n], Bp = [a[0] + (b[0] - a[0]) * (i + 1) / n, a[1] + (b[1] - a[1]) * (i + 1) / n], u0 = L * i / n;
+      if (kind === 'picket') { strip('solid', A, Bp, u0, 0.16, -0.2, 0.25, concrete); panel('picket', A, Bp, u0, 0.25, 1.2); post('solid', A[0], A[1], 0.09, 1.25, wood); }
+      else if (kind === 'bars') { strip('solid', A, Bp, u0, 0.22, -0.2, 0.4, wall); panel('bars', A, Bp, u0, 0.4, 1.5); post('solid', A[0], A[1], 0.32, 1.55, wall); }
+      else if (kind === 'mesh') { panel('mesh', A, Bp, u0, 0.02, 1.5); post('solid', A[0], A[1], 0.06, 1.55, green); }
+      else if (kind === 'solid') { strip('solid', A, Bp, u0, 0.3, -0.2, 1.6, wall); strip('solid', A, Bp, u0, 0.36, 1.6, 1.68, concrete); post('solid', A[0], A[1], 0.42, 1.75, wall); }
+      else strip('hedge', A, Bp, u0, 0.8, -0.1, 1.45 + 0.25 * Math.abs(Math.sin(seed * 3.1 + i)), [1, 1, 1]);
+    }
+    if (kind !== 'hedge') post('solid', b[0], b[1], kind === 'mesh' ? 0.06 : kind === 'picket' ? 0.09 : kind === 'bars' ? 0.32 : 0.42, kind === 'mesh' ? 1.55 : kind === 'picket' ? 1.25 : kind === 'bars' ? 1.55 : 1.75, kind === 'mesh' ? green : kind === 'picket' ? wood : wall);
+  }
+  // sloupy osvětlení: každých 32 m podél silnice, 3,6 m od osy, mimo domy a dům hráče; mezi nimi dráty s průvěsem
+  const poles = [];
+  for (const pts of roads) {
+    let acc = 14, prev = null;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1], [bx, bz] = pts[i], L = Math.hypot(bx - ax, bz - az); if (L < 0.01) continue;
+      const dx = (bx - ax) / L, dz = (bz - az) / L;
+      for (let t = acc; t < L; t += 32) {
+        const x = ax + dx * t - dz * 3.6, z = az + dz * t + dx * 3.6; acc = t + 32 - L;
+        if (Math.abs(x) > 125 || Math.abs(z) > 125 || (x > keep[0] && x < keep[1] && z > keep[2] && z < keep[3])) { prev = null; continue; }
+        if (ctx.all.some(b => x > b.box[0] - 1.5 && x < b.box[1] + 1.5 && z > b.box[2] - 1.5 && z < b.box[3] + 1.5 && (inPoly(x, z, b.rings) || edgeDist(x, z, b.rings) < 1.2))) { prev = null; continue; }
+        if (poles.some(p => Math.hypot(p.x - x, p.z - z) < 18)) { prev = null; continue; }
+        const p = { x, z, dx: dz, dz: -dx, prev }; poles.push(p); prev = p;
+      }
+      if (L <= acc) acc -= L;
+    }
+  }
+  const pg = new THREE.CylinderGeometry(0.09, 0.14, 8, 8).translate(0, 4, 0), arm = new THREE.BoxGeometry(1.3, 0.07, 0.07).translate(0.6, 7.6, 0), head = new THREE.BoxGeometry(0.55, 0.12, 0.24).translate(1.25, 7.52, 0);
+  for (const [g, c] of [[pg, concrete], [arm, dark], [head, [0.3, 0.32, 0.34]]]) { const n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) a.set(c, i * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); g.deleteAttribute('uv'); }
+  const poleGeo = mergeGeometries([pg.toNonIndexed(), arm.toNonIndexed(), head.toNonIndexed()]);
+  if (poles.length) {
+    const im = new THREE.InstancedMesh(poleGeo, M.pole, poles.length);
+    poles.forEach((p, i) => { _m.compose(_p.set(p.x, gH(p.x, p.z) - 0.3, p.z), _q.setFromAxisAngle(_up, Math.atan2(-p.dz, p.dx)), _s.set(1, 1, 1)); im.setMatrixAt(i, _m); });
+    im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; ctxGroup.add(im); STREET.meshes.push(im);
+    const W = [];
+    for (const p of poles) if (p.prev && Math.hypot(p.x - p.prev.x, p.z - p.prev.z) < 45) for (const hgt of [7.0, 7.4]) {
+      const ya = gH(p.prev.x, p.prev.z) - 0.3 + hgt, yb = gH(p.x, p.z) - 0.3 + hgt;
+      for (let k = 0; k < 8; k++) for (const t of [k / 8, (k + 1) / 8]) W.push(p.prev.x + (p.x - p.prev.x) * t, ya + (yb - ya) * t - 0.45 * 4 * t * (1 - t), p.prev.z + (p.z - p.prev.z) * t);
+    }
+    if (W.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(W, 3)); const l = new THREE.LineSegments(g, M.wire); l.frustumCulled = false; ctxGroup.add(l); STREET.meshes.push(l); }
+  }
+  for (const [k, b] of Object.entries(B)) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(b.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(b.N, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(b.U, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(b.C, 3)); g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, M[k]); m.castShadow = true; m.receiveShadow = true; m.userData.noAO = M[k].alphaTest > 0;
+    ctxGroup.add(m); STREET.meshes.push(m);
+  }
+  STREET.info = { runs: runs.length, fenceM: Math.round(runs.reduce((a, r) => a + Math.hypot(r.b[0] - r.a[0], r.b[1] - r.a[1]), 0)), kinds: runs.reduce((o, r) => (o[r.kind] = (o[r.kind] || 0) + 1, o), {}), poles: poles.length };
 }
 
 // vzhled podle režimu: kampaň = soumrak nad mraky, moje místo = den nad skutečnou čtvrtí
@@ -3087,7 +3262,7 @@ const ROOM_KITS = {
   living: [{ k: 'Sofa_01|sofa_02', at: 'wall', id: 'sofa' }, { k: 'CoffeeTable_01|modern_coffee_table_01', at: 'front', ref: 'sofa' }, { k: 'painted_wooden_cabinet', at: 'wall', id: 'tv', opp: 'sofa' },
     { k: 'Television_01', at: 'on', ref: 'tv' }, { k: 'ArmChair_01', at: 'wall' }, { k: 'wooden_bookshelf_worn', at: 'wall' }, { k: 'potted_plant_04', at: 'wall' },
     { k: 'hanging_picture_frame_01', at: 'hang' }, { k: 'wall_clock', at: 'hang' }],
-  kitchen: [{ at: 'dining' }],
+  kitchen: [{ at: 'dining' }, { k: 'gas_pb', at: 'wall' }],
   study: [{ k: 'SchoolDesk_01', at: 'wall', id: 'desk' }, { k: 'SchoolChair_01', at: 'front', ref: 'desk', flip: 1 }, { k: 'wooden_bookshelf_worn', at: 'wall' }, { k: 'drawer_cabinet', at: 'wall' }, { k: 'wall_clock', at: 'hang' }],
   bedroom: [{ k: 'GothicBed_01', at: 'wall', id: 'bed' }, { k: 'ClassicNightstand_01|painted_wooden_nightstand', at: 'wall', id: 'ns' }, { k: 'potted_plant_04', at: 'on', ref: 'ns' },
     { k: 'GothicCabinet_01|drawer_cabinet', at: 'wall' }, { k: 'ornate_mirror_01', at: 'hang' }],
@@ -3229,7 +3404,7 @@ function furnish(o) {
     const Y = o.YA, cells = [];
     for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { const i = x + nx * z; if (o.dist[i] > EXT + 3 && !keep[F][i] && !o.stairZone[i]) cells.push(i); }
     const occ = new Uint8Array(nx * nz);
-    for (const kit of ['old_bed_frame', 'wooden_crate_01', 'wooden_crate_02', 'Barrel_01', 'Barrel_01', 'cardboard_box_01', 'cardboard_box_01', 'cardboard_box_01', 'vintage_suitcase', 'wooden_crate_01']) {
+    for (const kit of ['old_bed_frame', 'wooden_crate_01', 'wooden_crate_02', 'Barrel_01', 'Barrel_01', 'gas_pb', 'gas_pb', 'cardboard_box_01', 'cardboard_box_01', 'cardboard_box_01', 'vintage_suitcase', 'wooden_crate_01']) {
       const rot = r() < 0.5, [sx, sy, sz] = kitSize(kit), w = Math.ceil((rot ? sz : sx) / VS) + 1, d = Math.ceil((rot ? sx : sz) / VS) + 1;
       for (let tries = 0; tries < 60; tries++) {
         const i = cells[Math.floor(r() * cells.length)], x = i % nx, z = (i / nx) | 0;
@@ -3655,20 +3830,24 @@ glassBits.mesh.castShadow = false;
 const matColor = (m, out) => { const mt = VM[m]; return out.copy(texAvg[mt.c]).multiply(mt.cc); };
 
 // ---------- bourání: vykrojení koule, souvislost se zemí, trosky ----------
+// o.len + o.dir: řez podél úsečky P → P + dir·len (pila); soudržnost se pak počítá jednou za celý řez
 function carve(P, rad, pow, o = {}) {
-  const { nx, ny, nz, vox } = H, sY = nx * nz;
-  const x0 = Math.max(0, Math.floor((P.x - rad * 1.2 - H.ox) / VS)), x1 = Math.min(nx - 1, Math.floor((P.x + rad * 1.2 - H.ox) / VS));
-  const y0 = Math.max(0, Math.floor((P.y - rad * 1.2) / VS)), y1 = Math.min(ny - 1, Math.floor((P.y + rad * 1.2) / VS));
-  const z0 = Math.max(0, Math.floor((P.z - rad * 1.2 - H.oz) / VS)), z1 = Math.min(nz - 1, Math.floor((P.z + rad * 1.2 - H.oz) / VS));
+  const { nx, ny, nz, vox } = H, sY = nx * nz, L = o.len || 0, D = o.dir || _up;
+  const ex = Math.max(P.x, P.x + D.x * L), sx = Math.min(P.x, P.x + D.x * L), ey = Math.max(P.y, P.y + D.y * L), sy = Math.min(P.y, P.y + D.y * L), ez = Math.max(P.z, P.z + D.z * L), sz = Math.min(P.z, P.z + D.z * L);
+  const x0 = Math.max(0, Math.floor((sx - rad * 1.2 - H.ox) / VS)), x1 = Math.min(nx - 1, Math.floor((ex + rad * 1.2 - H.ox) / VS));
+  const y0 = Math.max(0, Math.floor((sy - rad * 1.2) / VS)), y1 = Math.min(ny - 1, Math.floor((ey + rad * 1.2) / VS));
+  const z0 = Math.max(0, Math.floor((sz - rad * 1.2 - H.oz) / VS)), z1 = Math.min(nz - 1, Math.floor((ez + rad * 1.2 - H.oz) / VS));
   const removed = [], mats = [];
   let blocked = 0, hardest = 0;
   for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
     const i = x + nx * z + sY * y, m = vox[i]; if (!m) continue;
-    const dx = H.ox + (x + 0.5) * VS - P.x, dy = (y + 0.5) * VS - P.y, dz = H.oz + (z + 0.5) * VS - P.z, d2 = dx * dx + dy * dy + dz * dz;
-    const n = hash3(x, y, z), re = rad * (0.8 + 0.38 * n);
+    let dx = H.ox + (x + 0.5) * VS - P.x, dy = (y + 0.5) * VS - P.y, dz = H.oz + (z + 0.5) * VS - P.z;
+    if (L) { const t = clamp(dx * D.x + dy * D.y + dz * D.z, 0, L); dx -= D.x * t; dy -= D.y * t; dz -= D.z * t; }
+    const d2 = dx * dx + dy * dy + dz * dz;
+    const n = hash3(x, y, z), re = o.exact ? rad : rad * (0.8 + 0.38 * n);   // pila řeže přesně, jinak by mezi kostkami zůstaly „stehy"
     if (d2 > re * re) continue;
     const h = VM[m].h;
-    if (h > pow || (h === pow && Math.sqrt(d2) > re * 0.55 && n < 0.55)) { blocked++; hardest = Math.max(hardest, h); continue; }
+    if (h > pow || (h === pow && !o.exact && Math.sqrt(d2) > re * 0.55 && n < 0.55)) { blocked++; hardest = Math.max(hardest, h); continue; }
     vox[i] = 0; removed.push(i); mats.push(m);
     if (VM[m].st) H.gone++;
   }
@@ -3742,6 +3921,7 @@ function detach(comp, ex) {
     const i = comp[t]; mats[t] = vox[i]; skins[t] = skin[i]; xs[t] = i % nx; zs[t] = ((i / nx) | 0) % nz; ys[t] = (i / sY) | 0;
     vox[i] = 0; markDirty(i); ambDec(i); if (VM[mats[t]].st) H.gone++;
   }
+  if (n >= 600) { hCollapse(n, V3(H.ox + (xs[n >> 1] + 0.5) * VS, (ys[n >> 1] + 0.5) * VS, H.oz + (zs[n >> 1] + 0.5) * VS), ex); }
   if (n <= 12) {
     for (let t = 0; t < n; t++) crumbs.spawn(H.ox + (xs[t] + 0.5) * VS, (ys[t] + 0.5) * VS, H.oz + (zs[t] + 0.5) * VS, rnd(-0.5, 0.5), rnd(0, 0.5), rnd(-0.5, 0.5), rnd(0.05, 0.09), matColor(mats[t], _c), 8);
     return;
@@ -3858,6 +4038,7 @@ function breakPane(pn) {
   const n = Math.min(26, 6 + Math.round(pn.s.x * pn.s.y * 30 + pn.s.z * pn.s.y * 30));
   for (let k = 0; k < n; k++) glassBits.spawn(pn.c.x + rnd(-0.5, 0.5) * pn.s.x, pn.c.y + rnd(-0.5, 0.5) * pn.s.y, pn.c.z + rnd(-0.5, 0.5) * pn.s.z, rnd(-1.2, 1.2), rnd(-0.5, 1), rnd(-1.2, 1.2), rnd(0.04, 0.12), _c.set(0xd8ecf2), 6);
   Snd.glass();
+  hPts(25, pn.c, 'Okno', { cls: 's', heat: 0.3 });
 }
 
 // ---------- stavba scény domu ----------
@@ -4017,6 +4198,7 @@ function houseContext(ctx) {
   const tp = ctx.hf || ctx.sampler ? findTrees(ctx.hf, ctx.sampler, ctx.all, ctx.hf ? ctx.hf.half - 2 : A2 - 2, keepOut) : null;
   if (tp) drawTrees(tp, r);   // skutečné stromy z výškopisu a ortofota
   else plantTrees(ctx.data, ctx.proj, 1, A2, ctx.all, r, { zc: 0, corridor: (a, b, c, d) => b > x0 - 7 && a < x1 + 7 && d > z0 - 7 && c < z1 + 9 });
+  streetFurniture(ctx, roads, [x0 - 8, x1 + 8, z0 - 8, Math.max(z1 + 8, sp.z + 3)]);
   if (ctx.ortho) {
     const og = orthoGround(ctx, tp || []);
     for (const [u, cv, cs] of [['bld', og.mask, THREE.NoColorSpace], ['fill', og.fill, THREE.SRGBColorSpace]]) {
@@ -4191,6 +4373,17 @@ async function ruianAt([la, lo]) {
   let d = await getRes(q, 'json', 12000);
   if (!d.features?.length) d = await getRes(q + '&distance=8&units=esriSRUnit_Meter', 'json', 12000);
   return d.features?.[0]?.attributes || null;
+}
+// parcely RÚIAN kolem domu (druh pozemku 5 zahrada, 13 zastavěná plocha, 14 ostatní plocha; využití 16 silnice, 17 ostatní
+// komunikace, 18 ostatní dopravní plocha; číselníky SC_D_POZEMKU a SC_ZP_VYUZITI_POZ na services.cuzk.cz)
+async function ruianParcels(ctx, half) {
+  const cs = [[-half, -half], [half, -half], [-half, half], [half, half]].map(([x, z]) => ctx.inv(x, z));
+  const la0 = Math.min(...cs.map(c => c[0])), la1 = Math.max(...cs.map(c => c[0])), lo0 = Math.min(...cs.map(c => c[1])), lo1 = Math.max(...cs.map(c => c[1]));
+  const q = `${CUZK}/arcgis/rest/services/RUIAN/Prohlizeci_sluzba_nad_daty_RUIAN/MapServer/5/query?geometry=${lo0},${la0},${lo1},${la1}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=druhpozemkukod,zpusobyvyuzitipozemku&returnGeometry=true&outSR=4326&geometryPrecision=7&f=json`;
+  const d = await getRes(q, 'json', 20000);
+  return (d.features || []).filter(f => f.geometry && f.geometry.rings).map(f => ({
+    rings: f.geometry.rings.map(r => r.map(([lo, la]) => ctx.proj([la, lo]))), druh: f.attributes.druhpozemkukod, vyuz: f.attributes.zpusobyvyuzitipozemku,
+  }));
 }
 // výška nad terénem (DMP − DMR) ve čtverci ±half kolem domu, 1 m na pixel (služba má 2m rastr, zbytek dopočítá bilineárně)
 async function heightField(ctx, half) {
@@ -4643,12 +4836,13 @@ function roofGeoGain(g, smp, L) {
 async function enrichCZ(spec, ctx, msg) {
   const A2 = 140, notes = [];
   msg('Stahuju údaje o domě z ČÚZK…');
-  const [ru, hf, ortho, terr, orthoFar] = await Promise.allSettled([
+  const [ru, hf, ortho, terr, orthoFar, parcels] = await Promise.allSettled([
     ruianAt(ctx.targetLL),
     heightField(ctx, 120),
     orthoCanvas(ctx, A2, 4096, (n, t) => msg(`Stahuju ortofoto ČÚZK… ${n} / ${t}`)),
     terrainField(ctx, 710),
     orthoCanvas(ctx, 710, 1024, null, [[16, 710]]),   // hrubé ortofoto na daleký terén do obzoru
+    ruianParcels(ctx, 110),
   ]);
   spec.cz = { ruian: false, heights: false, ortho: false, terrain: false };
   if (terr.status === 'fulfilled') {
@@ -4659,6 +4853,7 @@ async function enrichCZ(spec, ctx, msg) {
     notes.push(`terén ${Math.round(h0)} m n. m.${hi - lo > 2 ? `, v okolí 100 m převýšení ${Math.round(hi - lo)} m` : ', rovina'}`);
   } else console.warn('terén DMR 5G:', terr.reason);
   if (orthoFar.status === 'fulfilled' && orthoFar.value) ctx.orthoFar = orthoFar.value;
+  if (parcels.status === 'fulfilled') ctx.parcels = parcels.value; else console.warn('parcely RÚIAN:', parcels.reason);
   if (ru.status === 'fulfilled' && ru.value) {
     const a = ru.value; spec.cz.ruian = true;
     spec.core = KONSTRUKCE[a.druhkonstrukcekod] || 'brick';
@@ -4718,7 +4913,50 @@ const PMAT = {
   glass: { dens: 500, hp: 0.4, brk: 'shatter', h: 3 }, ceramic: { dens: 600, hp: 0.7, brk: 'shatter', h: 3 },
   metal: { dens: 700, hp: 1e9, brk: 'none', h: 4 }, paper: { dens: 420, hp: 1.1, brk: 'burst', h: 0 }, cardboard: { dens: 50, hp: 0.9, brk: 'burst', h: 0 },
   soil: { dens: 900, hp: 0.4, brk: 'burst', h: 0 }, leaves: { dens: 60, hp: 0.4, brk: 'burst', h: 0 }, explosive: { dens: 260, hp: 2.2, brk: 'explode', h: 4 },
+  gas: { dens: 450, hp: 1e9, brk: 'none', h: 4 },   // plynová lahev se nerozpadá na díly: ulomí se ventil, nebo bouchne celá (gasHit)
 };
+// jména kusů pro hlášky (rod kvůli slovesu: m/f/n/p = množné)
+const KIT_NAMES = { ArmChair_01: ['Křeslo', 'n'], Barrel_01: ['Sud', 'm'], ClassicNightstand_01: ['Noční stolek', 'm'], CoffeeTable_01: ['Konferenční stolek', 'm'], GothicBed_01: ['Postel', 'f'],
+  GothicCabinet_01: ['Skříň', 'f'], SchoolChair_01: ['Židle', 'f'], SchoolDesk_01: ['Psací stůl', 'm'], Sofa_01: ['Gauč', 'm'], Television_01: ['Televize', 'f'], WoodenTable_01: ['Stůl', 'm'],
+  cardboard_box_01: ['Krabice', 'f'], ceramic_vase_01: ['Váza', 'f'], drawer_cabinet: ['Komoda', 'f'], hanging_picture_frame_01: ['Obraz', 'm'], modern_coffee_table_01: ['Stolek', 'm'],
+  old_bed_frame: ['Stará postel', 'f'], ornate_mirror_01: ['Zrcadlo', 'n'], painted_wooden_cabinet: ['Skříňka', 'f'], painted_wooden_chair_01: ['Židle', 'f'], painted_wooden_nightstand: ['Noční stolek', 'm'],
+  potted_plant_04: ['Květináč', 'm'], round_wooden_table_01: ['Kulatý stůl', 'm'], sofa_02: ['Pohovka', 'f'], throw_pillows_01: ['Polštáře', 'p'], vintage_day_bed: ['Gauč', 'm'],
+  vintage_suitcase: ['Kufr', 'm'], wall_clock: ['Hodiny', 'p'], wooden_bookshelf_worn: ['Knihovna', 'f'], wooden_crate_01: ['Bedna', 'f'], wooden_crate_02: ['Bedna', 'f'], gas_pb: ['Plynová lahev', 'f'] };
+const flewVerb = g => ({ m: 'vyletěl', f: 'vyletěla', n: 'vyletělo', p: 'vyletěly' })[g] || 'vyletěl';
+// propan-butanová lahev 10 kg (Ø 30 cm, výška kolem 59 cm): ocelová nádoba s patkou, límec na úchop, mosazný ventil s bočním vývodem; model z kódu, žádný soubor
+KITS.gas_pb = [0.3, 0.615, 0.3];
+function gasLabelTex() {
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 128; const g = cv.getContext('2d');
+  g.fillStyle = '#b3261c'; g.fillRect(0, 0, 1024, 128);
+  for (const x0 of [0, 512]) {
+    g.fillStyle = '#f4efe6'; g.font = '800 46px system-ui, sans-serif'; g.textBaseline = 'middle'; g.fillText('PROPAN-BUTAN', x0 + 30, 50);
+    g.font = '600 26px system-ui, sans-serif'; g.fillText('10 kg · HOŘLAVÝ PLYN', x0 + 34, 98);
+    // výstražný kosočtverec s plamenem (GHS02)
+    const cx = x0 + 440, cy = 64; g.save(); g.translate(cx, cy); g.rotate(Math.PI / 4); g.fillStyle = '#f4efe6'; g.fillRect(-36, -36, 72, 72); g.strokeStyle = '#d0180f'; g.lineWidth = 7; g.strokeRect(-32, -32, 64, 64); g.restore();
+    g.fillStyle = '#1a1414'; g.beginPath(); g.moveTo(cx, cy - 28); g.bezierCurveTo(cx + 18, cy - 8, cx + 16, cy + 14, cx, cy + 22); g.bezierCurveTo(cx - 16, cy + 14, cx - 14, cy - 4, cx - 4, cy - 12); g.bezierCurveTo(cx - 2, cy - 2, cx + 2, cy + 2, cx, cy - 28); g.fill();
+    g.fillRect(cx - 18, cy + 22, 36, 4);
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+function gasKit(k) {
+  const mk = o => { const m = withAmb(new THREE.MeshStandardMaterial(o)); m.userData.amb = true; return m; };
+  const red = mk({ color: 0xb3261c, roughness: 0.42, metalness: 0.35 }), steel = mk({ color: 0x8d9094, roughness: 0.5, metalness: 0.8 });
+  const brass = mk({ color: 0xc9a24a, roughness: 0.35, metalness: 0.9 }), dark = mk({ color: 0x2a2a2c, roughness: 0.6, metalness: 0.2 }), label = mk({ map: gasLabelTex(), roughness: 0.55, metalness: 0.15 });
+  const V2 = (r, y) => new THREE.Vector2(r, y);
+  const body = new THREE.LatheGeometry([V2(0, 0.012), V2(0.128, 0.012), V2(0.132, 0), V2(0.142, 0), V2(0.142, 0.03), V2(0.15, 0.06), V2(0.15, 0.45), V2(0.143, 0.488), V2(0.12, 0.522), V2(0.075, 0.546), V2(0.03, 0.556), V2(0, 0.557)], 28);
+  const collar = new THREE.LatheGeometry([V2(0.074, 0.53), V2(0.09, 0.535), V2(0.09, 0.608), V2(0.084, 0.615), V2(0.079, 0.608), V2(0.079, 0.545), V2(0.074, 0.53)], 24);
+  const band = new THREE.CylinderGeometry(0.1512, 0.1512, 0.15, 32, 1, true).translate(0, 0.3, 0);
+  const valve = new THREE.CylinderGeometry(0.017, 0.021, 0.055, 12).translate(0, 0.578, 0);
+  const outlet = new THREE.CylinderGeometry(0.008, 0.008, 0.04, 8).rotateZ(Math.PI / 2).translate(0.034, 0.585, 0);
+  const wheel = new THREE.TorusGeometry(0.024, 0.006, 6, 16).rotateX(Math.PI / 2).translate(0, 0.607, 0);
+  const c = V3(0, 0.3, 0), list = [[body, red], [band, label], [collar, steel], [valve, brass], [outlet, brass], [wheel, dark]];
+  for (const [g] of list) { g.computeBoundingBox(); g.computeBoundingSphere(); }
+  k.whole = list.map(([geo, mat]) => ({ geo, mat }));
+  const ms = list.map(([geo, mat]) => { const g2 = geo.clone().translate(-c.x, -c.y, -c.z); g2.computeBoundingBox(); g2.computeBoundingSphere(); return { geo: g2, mat }; });
+  const bb = new THREE.Box3(); for (const q of ms) bb.union(q.geo.boundingBox);
+  k.parts = [{ mat: 'gas', c, size: bb.getSize(V3()), mid: bb.getCenter(V3()), ms }];
+  return k;
+}
 const PROP = { kits: {}, list: [], parts: [], root: new THREE.Group(), loader: null, ray: new THREE.Raycaster(), phys: false };
 houseRoot.add(PROP.root);
 const _mm = new THREE.Matrix4(), _pv = V3(), _pq = new THREE.Quaternion();
@@ -4736,6 +4974,7 @@ function kitAvg(mat) {
 function kitLoad(name) {
   let k = PROP.kits[name]; if (k) return k.ready;
   k = PROP.kits[name] = {};
+  if (name === 'gas_pb') return (k.ready = Promise.resolve(gasKit(k)));
   PROP.loader ||= new GLTFLoader();
   const sc = KIT_SCALE[name] || 1;
   k.ready = PROP.loader.loadAsync(`models/${name}.glb`).then(g => {
@@ -4766,7 +5005,8 @@ function kitLoad(name) {
 }
 function spawnProps(list) {
   for (const pl of list || []) {
-    const prop = { kit: pl.kit, p: V3(pl.x, pl.y, pl.z), q: new THREE.Quaternion().setFromAxisAngle(_up, pl.yaw), g: new THREE.Group(), body: null, broken: false, ready: false, pv: V3(), synced: false, cd: 0.3, bb: new THREE.Box3() };
+    const prop = { kit: pl.kit, p: V3(pl.x, pl.y, pl.z), q: new THREE.Quaternion().setFromAxisAngle(_up, pl.yaw), g: new THREE.Group(), body: null, broken: false, ready: false, pv: V3(), synced: false, cd: 0.3, bb: new THREE.Box3(), y0: pl.y, top: 0 };
+    if (pl.kit === 'gas_pb') { Object.assign(prop, { gas: true, mat: 'gas', hp: 2.2, leak: false, fuse: 0 }); prop.q.setFromAxisAngle(_up, Math.random() * 6.28); }
     prop.g.position.copy(prop.p); prop.g.quaternion.copy(prop.q); prop.g.userData.owner = prop; PROP.root.add(prop.g); PROP.list.push(prop);
     kitLoad(pl.kit).then(k => {
       if (!PROP.list.includes(prop)) return;
@@ -4814,6 +5054,7 @@ function removePart(pt) {
 }
 function breakProp(prop) {
   if (prop.broken || !prop.ready) return; prop.broken = true;
+  if (H.state === 'play') { H.stat.props++; hPts(70, prop.bb.getCenter(V3()), (KIT_NAMES[prop.kit] || ['Nábytek'])[0], { cls: 's', heat: 0.4 }); }
   const v = prop.body ? { ...phys.vel(prop.body) } : { x: 0, y: 0, z: 0 };
   if (prop.body) { phys.remove(prop.body); prop.body = null; }
   prop.g.updateMatrixWorld(true); PROP.root.remove(prop.g);
@@ -4827,6 +5068,7 @@ function breakProp(prop) {
 // zásah: celý kus se při silnější ráně rozpadne na díly, díl dostane poškození a ránu
 function propHit(own, P, dmg, imp, ex) {
   if (!own) return;
+  if (own.gas) return gasHit(own, dmg, imp, ex);
   if (own.kit !== undefined) {   // celý kus
     if (!own.ready || own.broken) return;
     if (dmg < 0.9 && !ex) { if (own.body && imp) phys.impulse(own.body, imp); if (P) dustPuff(P, 0.3, 0.1); return; }
@@ -4848,7 +5090,10 @@ function partHit(pt, dmg, imp) {
   const big = Math.max(pt.size.x, pt.size.y, pt.size.z);
   if ((pm.brk === 'split' || pm.brk === 'tear') && pt.depth < 2 && big > 0.22) { splitPart(pt, imp); return; }
   removePart(pt); matFx(pt.mat, pt.kp.ms[0].mat, c, pt.size, 1);
-  if (pm.brk === 'explode') H.timers.push({ t: 0.15, fn: () => explodeAt(c) });   // sud s výstražným znakem
+  if (pm.brk === 'explode' && !pt.prop.boomed) {   // sud s výstražným znakem: bouchne jednou celý, ostatní výbušné díly shoří v tom samém výbuchu
+    pt.prop.boomed = true; const trig = !!PROP.blast;
+    H.timers.push({ t: 0.15, fn: () => { for (const q of PROP.parts.slice()) if (q.prop === pt.prop && q.mat === 'explosive') removePart(q); explodeAt(c, { src: 'sud', trig }); } });
+  }
 }
 // úlomky: řez kolmo na nejdelší osu (35–65 %), každá půlka = stejná síť ořezaná rovinou + vlastní kvádr
 function splitPart(pt, imp) {
@@ -4885,15 +5130,19 @@ function matFx(mat, m3, c, size, k) {
 }
 const FOAM = new THREE.Color(0xe9dcae), FEATHER = new THREE.Color(0xf4f2ec), PAPER = new THREE.Color(0xf2efe6), SOIL = new THREE.Color(0x4a3a2a);
 // výbuch: kusy v dosahu se rozpadnou a rozletí
-function propBlast(P, R, k) {
+function propBlast(P, R, k, Rgas = R * 0.5) {
+  PROP.blast = true;
+  try { propBlastIn(P, R, k, Rgas); } finally { PROP.blast = false; }
+}
+function propBlastIn(P, R, k, Rgas) {
   for (const prop of PROP.list) {
     if (!prop.ready || prop.broken) continue;
-    const c = prop.bb.getCenter(V3()), d = c.distanceTo(P); if (d > R) continue;
+    const c = prop.bb.getCenter(V3()), d = c.distanceTo(P); if (d > (prop.gas ? Rgas : R)) continue;
     const f = 1 - d / R; propHit(prop, c, k * f * f + 1, null, true);
   }
   for (const pt of PROP.parts.slice()) {
     const c = partCenter(pt), d = Math.max(0.3, c.distanceTo(P)); if (d > R) continue;
-    const f = 1 - d / R, dir = c.clone().sub(P).normalize(), J = Math.sqrt(pt.mass) * 9 * f;
+    const f = 1 - d / R, dir = c.clone().sub(P).normalize(), J = Math.min(Math.sqrt(pt.mass) * 9, pt.mass * 13) * f;   // strop rychlosti: drobnosti by jinak letěly 30 m vysoko
     partHit(pt, k * f * f, { x: dir.x * J, y: (dir.y + 0.5) * J, z: dir.z * J });
   }
 }
@@ -4905,7 +5154,8 @@ function propUpdate(rdt) {
     const p = phys.pos(prop.body), q = phys.rot(prop.body); terrRescue(prop.body, p);
     prop.g.position.set(p.x, p.y, p.z); prop.g.quaternion.set(q.x, q.y, q.z, q.w); prop.synced = sl; prop.g.updateMatrixWorld(true); prop.bb.setFromObject(prop.g);
     const v = phys.vel(prop.body), dv = Math.hypot(v.x - prop.pv.x, v.y - prop.pv.y, v.z - prop.pv.z); prop.pv.set(v.x, v.y, v.z); prop.cd -= rdt;
-    if (dv > 4.5 && prop.cd <= 0) { prop.cd = 0.25; Snd.thud(Math.min(1, dv / 12)); propHit(prop, prop.bb.getCenter(V3()), (dv - 4.5) * 0.7, null, dv > 7); }
+    if (dv > 4.5 && prop.cd <= 0) { prop.cd = 0.25; Snd.thud(Math.min(1, dv / 12)); propHit(prop, prop.bb.getCenter(V3()), (dv - 4.5) * 0.7, null, dv > 7 && !prop.gas); }
+    if (!sl && p.y - prop.y0 > prop.top + 0.3) { prop.top = p.y - prop.y0; if (prop.top > 2.5) { const [nm, gd] = KIT_NAMES[prop.kit] || ['Kus nábytku', 'm']; hBizarre(prop.top * 8, `${nm} ${flewVerb(gd)} ${fmt1(prop.top)} m vysoko`); } }
   }
   for (const pt of PROP.parts.slice()) {
     if (!pt.body || !pt.alive) continue;
@@ -4916,6 +5166,7 @@ function propUpdate(rdt) {
     terrRescue(pt.body, p);
     const v = phys.vel(pt.body), dv = Math.hypot(v.x - pt.pv.x, v.y - pt.pv.y, v.z - pt.pv.z); pt.pv.set(v.x, v.y, v.z); pt.cd -= rdt;
     if (dv > 3.5 && pt.cd <= 0) { pt.cd = 0.25; if (PMAT[pt.mat].h >= 1) Snd.thud(Math.min(0.6, dv / 15)); partHit(pt, (dv - 3.5) * 0.45, null); }
+    if (!sl && pt.mass > 3) { pt.y0 ??= p.y; pt.top ??= 0; if (p.y - pt.y0 > pt.top + 0.3) { pt.top = p.y - pt.y0; if (pt.top > 3) hBizarre(pt.top * 5, `Kus nábytku (${((KIT_NAMES[pt.prop.kit] || ['něco'])[0]).toLowerCase()}) ${flewVerb('m')} ${fmt1(pt.top)} m vysoko`); } }
   }
 }
 function propWake(x0, x1, y0, y1, z0, z1) {
@@ -5056,10 +5307,11 @@ function movePlayer(dt) {
 // ---------- nářadí ----------
 const TOOLS = [
   { key: 'hammer', name: 'Kladivo', note: 'omítka, cihly, dřevo', r: 0.2, pow: 2, cd: 0.26, range: 2.6, kick: 1.6 },
-  { key: 'sledge', name: 'Perlík', note: 'i beton', r: 0.42, pow: 3, cd: 0.8, range: 3.0, kick: 3 },
+  { key: 'sledge', name: 'Perlík', note: 'podrž = silnější rána', r: 0.42, pow: 3, cd: 0.8, range: 3.0, kick: 3 },
   { key: 'drill', name: 'Sbíječka', note: 'všechno, přesně', r: 0.14, pow: 4, cd: 0.06, range: 2.2, kick: 0.9, hold: true },
   { key: 'charge', name: 'Nálož', note: 'E odpálí', range: 4.5, cd: 0.25 },
   { key: 'ball', name: 'Koule', note: 'bourací dělo', cd: 0.75 },
+  { key: 'saw', name: 'Pila', note: 'řez skrz zeď a trámy', r: 0.085, pow: 3, cd: 0.045, range: 2.4, kick: 0.3, hold: true },   // poloměr > úhlopříčka kostky/2 (7,07 cm): souvislá drážka
 ];
 const _o = V3(), _d = V3(), _q2 = new THREE.Quaternion(), _lo = V3(), _ld = V3();
 const debrisRay = new THREE.Raycaster();
@@ -5141,14 +5393,18 @@ function useTool() {
   const hit = houseRay(_o, _d, T.range || 3);
   if (T.key === 'charge') return hPlaceCharge(hit);
   if (!hit) { if (T.key !== 'drill') Snd.whoosh(); return; }
+  if (T.key === 'saw') return sawCut(T, hit);
+  const ch = T.key === 'sledge' ? H.charge || 0 : 0, rr = T.r * (1 + 0.85 * ch), kk = (T.kick || 0) * (1 + 2.2 * ch);   // nabitý perlík: větší kráter, víc odhodí
+  H.charge = 0;
   if (hit.kind === 'vox') {
-    const P = V3().copy(hit.p).addScaledVector(_d, T.r * 0.45);
-    const res = carve(P, T.r, T.pow, { kick: T.kick, crumbs: T.key === 'drill' ? 6 : 26, dust: T.key === 'drill' ? 1 : 6 });
+    const P = V3().copy(hit.p).addScaledVector(_d, rr * 0.45);
+    const res = carve(P, rr, T.pow, { kick: kk, crumbs: T.key === 'drill' ? 6 : 26 + ch * 40, dust: T.key === 'drill' ? 1 : 6 + ch * 6 });
+    if (ch > 0.5) { trauma = Math.min(1, trauma + 0.25 * ch); Snd.slam(); for (let k = 0; k < 4; k++) dustPuff(P, 1.2, rr); }
     if (!res.n) {
       Snd.ping(); for (let k = 0; k < 6; k++) sparks.spawn({ p: hit.p.clone(), v: V3().copy(hit.n).multiplyScalar(rnd(2, 5)).add(rndDir().multiplyScalar(2)), life: rnd(0.15, 0.35), size: rnd(0.012, 0.025), grav: 0.4, drag: 2, curve: curve.shrink });
       if (res.hardest > T.pow && clock - H.lastMsg > 2) { H.lastMsg = clock; hEvt(res.hardest >= 4 ? 'Ocel povolí jen sbíječce nebo náloži' : 'Na beton vezmi perlík, sbíječku nebo nálož'); }
     } else { Snd.hit(VM[res.mat]?.h ?? 2, T.key); trauma = Math.min(1, trauma + (T.key === 'sledge' ? 0.12 : T.key === 'drill' ? 0.03 : 0.05)); }
-    for (const dd of H.debris) { const p = phys.pos(dd.body); if (Math.hypot(p.x - P.x, p.y - P.y, p.z - P.z) < T.r + 0.6) phys.impulse(dd.body, { x: _d.x * T.kick * 0.5, y: _d.y * T.kick * 0.5, z: _d.z * T.kick * 0.5 }); }
+    for (const dd of H.debris) { const p = phys.pos(dd.body); if (Math.hypot(p.x - P.x, p.y - P.y, p.z - P.z) < rr + 0.6) phys.impulse(dd.body, { x: _d.x * kk * 0.5, y: _d.y * kk * 0.5, z: _d.z * kk * 0.5 }); }
   } else if (hit.kind === 'pane') breakPane(hit.pane);
   else if (hit.kind === 'roof') {
     const el = hit.el;
@@ -5163,6 +5419,32 @@ function useTool() {
     propHit(hit.own, hit.p, T.pow * (T.key === 'drill' ? 0.16 : 0.8), { x: _d.x * k, y: _d.y * k + 0.6, z: _d.z * k });
     const own = hit.own, mat = own.mat || 'wood'; Snd.hit(PMAT[mat] ? PMAT[mat].h : 1, T.key); trauma = Math.min(1, trauma + (T.key === 'sledge' ? 0.08 : 0.03));
   } else if (hit.kind === 'ground') { dustPuff(hit.p, 0.4, 0.2); Snd.thud(0.15); }
+}
+// pila: úzká drážka podél pohledu skrz celou tloušťku zdi; když drážky obkrouží kus, soudržnost ho pustí dolů
+function sawCut(T, hit) {
+  if (!hit) return;
+  H.sawT = 0.12;
+  if (hit.kind === 'vox') {
+    const P = V3().copy(hit.p).addScaledVector(_d, -0.04), res = carve(P, T.r, T.pow, { len: 0.9, dir: _d, kick: T.kick, crumbs: 3, dust: 1, exact: true });
+    const wood = res.mat && VM[res.mat] && VM[res.mat].h <= 1;
+    for (let k = 0; k < 3; k++) (wood ? splinters : crumbs).spawn(hit.p.x, hit.p.y, hit.p.z, rnd(-1, 1) + hit.n.x * 2, rnd(0.5, 2), rnd(-1, 1) + hit.n.z * 2, rnd(0.015, 0.04), res.mat ? matColor(res.mat, _c) : _c.set(0x9a8a76), rnd(1.5, 3));
+    if (!res.n && res.hardest > T.pow) { Snd.ping(); for (let k = 0; k < 4; k++) sparks.spawn({ p: hit.p.clone(), v: V3().copy(hit.n).multiplyScalar(rnd(2, 5)).add(rndDir().multiplyScalar(2)), life: rnd(0.1, 0.3), size: rnd(0.01, 0.02), grav: 0.4, drag: 2, curve: curve.shrink }); if (clock - H.lastMsg > 2) { H.lastMsg = clock; hEvt('Ocel pila nevezme, na ni sbíječku nebo nálož'); } }
+    Snd.saw(res.n ? 1 : 0.5); trauma = Math.min(0.25, trauma + 0.01);
+  } else if (hit.kind === 'roof') {
+    const el = hit.el; dropEl(el, null, { x: _d.x * 0.6, y: 0.4, z: _d.z * 0.6 }); roofSupport(); Snd.saw(1);
+    for (let k = 0; k < 6; k++) splinters.spawn(hit.p.x, hit.p.y, hit.p.z, rnd(-1, 1), rnd(0.5, 2), rnd(-1, 1), rnd(0.015, 0.04), _c.set(0xb08a5e), rnd(1.5, 3));
+  } else if (hit.kind === 'pane') breakPane(hit.pane);
+  else if (hit.kind === 'prop' && hit.own) { propHit(hit.own, hit.p, 0.45, { x: _d.x * 0.5, y: 0.3, z: _d.z * 0.5 }); Snd.saw(1); }
+}
+// nabíjený perlík: tlačítko drží → nádech (až 1,2 s), puštění → rána
+function toolPress() {
+  const T = TOOLS[H.tool];
+  if (T.key === 'sledge') { if (H.cool > 0 || H.state !== 'play') return; H.charging = true; H.charge = 0; return; }
+  H.hold = true; useTool();
+}
+function toolRelease() {
+  H.hold = false;
+  if (H.charging) { H.charging = false; H.charge = Math.min(1, H.charge); H.cool = 0; useTool(); }
 }
 const chargeGeo = new THREE.BoxGeometry(0.22, 0.13, 0.07), chargeMat = new THREE.MeshStandardMaterial({ color: 0xc8261c, roughness: 0.6 });
 const ledMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.4, 0.2) });
@@ -5182,28 +5464,99 @@ function detonateAll() {
   if (!H.charges.length) { hEvt('Nejdřív polož nálož (klávesa 4)'); return; }
   const list = H.charges.slice(); H.charges = []; renderTools();
   hEvt('Odpal!'); Snd.creak();
-  list.forEach((c, i) => H.timers.push({ t: 0.45 + i * 0.17, fn: () => { houseRoot.remove(c.g); explodeAt(c.p); } }));
+  list.forEach((c, i) => H.timers.push({ t: 0.45 + i * 0.17, fn: () => { houseRoot.remove(c.g); explodeAt(c.p, { src: 'nalož' }); } }));
 }
-function explodeAt(P) {
-  fxExplosion(P); Snd.boom();
-  boomLight.position.copy(P); boomLight.intensity = Math.max(boomLight.intensity, 400);
-  for (let i = 0; i < 18; i++) dustPuff(P, 2.2, 1.2);
+// výbuch: s = měřítko (plynová lahev 1,35×); tlaková vlna odpálí nálože a lahve v dosahu → řetěz
+function explodeAt(P, o = {}) {
+  const s = o.s || 1, gas = o.src === 'gas';
+  fxExplosion(P); if (gas) fxFireball(P); Snd.boom(); if (gas) Snd.boomGas();
+  boomLight.position.copy(P); boomLight.intensity = Math.max(boomLight.intensity, gas ? 900 : 400);
+  for (let i = 0; i < 18 * s; i++) dustPuff(P, 2.2 * s, 1.2 * s);
   const dp = Math.hypot(PL.p.x - P.x, PL.p.y + 1 - P.y, PL.p.z - P.z);
-  trauma = Math.min(1, trauma + clamp(1.4 - dp * 0.12, 0.15, 0.75));
-  if (dp < 9) impactFrame(P);
+  trauma = Math.min(1, trauma + clamp(1.4 * s - dp * 0.12, 0.15, 0.75 + 0.2 * (s - 1)));
+  if (dp < 9 * s) impactFrame(P);
   if (clock - S.lastSlow > 1.2) { S.lastSlow = clock; slowmo(0.35, 0.12, 0.7); }
-  const ex = { p: P.clone(), k: 9 };
-  carve(P, 1.25, 4, { ex, kick: 6, crumbs: 60, dust: 4 });
-  carve(P, 1.9, 2, { ex, kick: 5, crumbs: 30, dust: 2 });
-  for (const pn of H.panes) if (pn.alive && pn.c.distanceTo(P) < 6.5) breakPane(pn);
-  for (const el of H.roof) if (el.st === 1 && el.p.distanceTo(P) < 2.4) dropEl(el, ex);
+  const ex = { p: P.clone(), k: 9 * s };
+  carve(P, 1.25 * s, 4, { ex, kick: 6 * s, crumbs: 60, dust: 4 });
+  carve(P, 1.9 * s, 2, { ex, kick: 5 * s, crumbs: 30, dust: 2 });
+  for (const pn of H.panes) if (pn.alive && pn.c.distanceTo(P) < 6.5 * s) breakPane(pn);
+  for (const el of H.roof) if (el.st === 1 && el.p.distanceTo(P) < 2.4 * s) dropEl(el, ex);
   roofSupport(ex);
-  const push = (body, p, k) => { _v.set(p.x - P.x, p.y - P.y, p.z - P.z); const d = Math.max(0.4, _v.length()); if (d > 7) return; _v.multiplyScalar(1 / d); const s = k * (1 - d / 7); phys.impulse(body, { x: _v.x * s, y: (_v.y + 0.4) * s, z: _v.z * s }); };
+  const R = 7 * s, push = (body, p, k) => { _v.set(p.x - P.x, p.y - P.y, p.z - P.z); const d = Math.max(0.4, _v.length()); if (d > R) return; _v.multiplyScalar(1 / d); const f = k * s * (1 - d / R); phys.impulse(body, { x: _v.x * f, y: (_v.y + 0.4) * f, z: _v.z * f }); };
   for (const d of H.debris) push(d.body, phys.pos(d.body), 4 + d.n * 0.004);
-  propBlast(P, 7, 9);
+  propBlast(P, 7, 9 * s, 3.5 * s);
   for (const el of H.roof) if (el.body) push(el.body, phys.pos(el.body), 0.6);
   for (const b of H.balls) if (b.body) push(b.body, phys.pos(b.body), 2);
-  if (dp < 6) { _v.set(PL.p.x - P.x, 0, PL.p.z - P.z).normalize(); const k = (6 - dp) * 2.2; PL.v.x += _v.x * k; PL.v.z += _v.z * k; PL.v.y += k * 0.5; PL.ground = false; }
+  // položené nálože v dosahu tlakové vlny bouchnou s malým zpožděním (řetěz je pak vidět a slyšet po jedné)
+  for (const c of H.charges.slice()) if (c.p.distanceTo(P) < 3.2 * s) { H.charges.splice(H.charges.indexOf(c), 1); renderTools(); H.timers.push({ t: rnd(0.12, 0.3), fn: () => { houseRoot.remove(c.g); explodeAt(c.p, { src: 'nalož', trig: true }); } }); }
+  if (dp < 6 * s) { _v.set(PL.p.x - P.x, 0, PL.p.z - P.z).normalize(); const k = (6 * s - dp) * 2.2; PL.v.x += _v.x * k; PL.v.z += _v.z * k; PL.v.y += k * 0.5; PL.ground = false; }
+  hBoom(P, o.src || 'boom', o.trig);
+}
+// ohnivá koule plynu: větší, pomalejší, stoupá (vrstva navíc nad obyčejným výbuchem, 3d/21 exploze po vrstvách)
+function fxFireball(P) {
+  for (let i = 0; i < 22; i++) {
+    const d = rndDir(); d.y = Math.abs(d.y) * 0.6 + 0.2;
+    flames.spawn({ p: P.clone().addScaledVector(d, rnd(0.2, 0.9)), v: d.multiplyScalar(rnd(2, 5)).add(V3(0, rnd(2, 4), 0)), life: rnd(0.6, 1.15), size: rnd(0.9, 1.9), grav: -0.22, drag: 2.4, curve: curve.pop,
+      paint: (t, c) => t < 0.12 ? c.setRGB(5, 4, 2.8) : t < 0.55 ? c.setRGB(4.2, 1.6 - t, 0.35) : c.setRGB(1.1 * (1 - t), 0.22 * (1 - t), 0.07 * (1 - t)) });
+  }
+}
+// ---------- plynové lahve: kladivo ulomí ventil (syčí, proud z bočního vývodu lahev převrhne a roztočí, pak vzplane a bouchne), výbuch nebo koule ji odpálí hned ----------
+const GAS = { F0: 230, F1: 420 }, _xAx = V3(1, 0, 0);
+function gasHit(g, dmg, imp, ex) {
+  if (!g.ready || g.broken) return;
+  if (imp && g.body) phys.impulse(g.body, imp);
+  const c = g.bb.getCenter(V3());
+  if (ex) { gasArm(g, rnd(0.14, 0.32)); return; }
+  for (let i = 0; i < 4; i++) sparks.spawn({ p: c.clone(), v: rndDir().multiplyScalar(rnd(1.5, 4)), life: rnd(0.12, 0.3), size: rnd(0.012, 0.022), grav: 0.4, drag: 2, curve: curve.shrink });
+  g.hp -= dmg;
+  if (g.hp > 0) { Snd.ping(); return; }
+  if (!g.leak) {
+    g.leak = true; g.fuse = rnd(2.4, 3.2); g.f0 = g.fuse; g.leakFrom = c.clone();
+    if (g.body) {   // ulomení ventilu lahví škubne a převrhne ji; při úniku víc tlumit rotaci, ať nejede jako vrtule
+      const q = phys.rot(g.body), p = phys.pos(g.body), a = Math.random() * 6.28;
+      g.tip = V3(Math.cos(a), 0, Math.sin(a));
+      phys.impulseAt(g.body, { x: g.tip.x * 10, y: 0, z: g.tip.z * 10 }, V3(0, 0.6, 0).applyQuaternion(_q.set(q.x, q.y, q.z, q.w)).add(_p.set(p.x, p.y, p.z)));
+      phys.damping(g.body, 0.2, 1.6);
+    }
+    hPts(150, c, 'Ulomený ventil', { cls: 'm' }); hEvt('Ulomený ventil! Uteč, za pár vteřin to bouchne');
+  } else if (g.fuse > 0.35) g.fuse = 0.35;   // další rána do syčící lahve ji zapálí
+}
+function gasArm(g, t) { if (g.broken) return; g.fuse = g.fuse > 0 ? Math.min(g.fuse, t) : t; g.f0 ||= g.fuse; if (PROP.blast) g.trig = true; }
+function gasUpdate(dt) {
+  for (const g of PROP.list) {
+    if (!g.gas || g.broken || !(g.fuse > 0)) continue;
+    g.fuse -= dt;
+    if (g.leak && g.body) {
+      // ventil je ulomený v hrdle: plyn uniká podél osy, tah žene lahev dnem napřed (jako tlaková láhev bez ventilu); malé kmitání trysky do boku ji stáčí
+      const q = phys.rot(g.body), p = phys.pos(g.body), k = 1 - clamp(g.fuse / g.f0, 0, 1), lit = g.fuse < 0.9;
+      _q.set(q.x, q.y, q.z, q.w);
+      const ax = V3(0, 1, 0).applyQuaternion(_q), out = V3(0, 0.6, 0).applyQuaternion(_q).add(_p.set(p.x, p.y, p.z));
+      const F = (GAS.F0 + (GAS.F1 - GAS.F0) * k) * dt;   // crescendo: proud sílí až do výbuchu
+      phys.impulse(g.body, { x: -ax.x * F, y: -ax.y * F, z: -ax.z * F });
+      const sd = V3(1, 0, 0).applyQuaternion(_q).multiplyScalar(Math.sin(H.gt * 5.1 + g.y0 * 7) * 0.22 * F);
+      phys.impulseAt(g.body, sd, out);
+      if (ax.y > 0.55) phys.impulseAt(g.body, { x: g.tip.x * 0.7 * F, y: 0, z: g.tip.z * 0.7 * F }, out);   // stojící lahev: ulomené hrdlo fouká šikmo, dokud ji nepřevrhne
+      if (lit) {
+        _q2.setFromUnitVectors(_xAx, ax);
+        flames.spawn({ p: out.clone(), v: ax.clone().multiplyScalar(rnd(4, 7)), q: _q2.clone(), dim: V3(2.4, 0.7, 0.7), life: rnd(0.1, 0.2), size: rnd(0.07, 0.13), grav: -0.1, drag: 3, curve: curve.pop,
+          paint: (t, c) => t < 0.15 ? c.setRGB(1.2, 1.6, 3) : c.setRGB(4, 1.7, 0.45) });
+      } else if (frameNo % 2 === 0) smoke.spawn({ p: out.clone(), v: ax.clone().multiplyScalar(rnd(4, 7)).add(rndDir().multiplyScalar(0.6)), life: rnd(0.16, 0.26), size: rnd(0.03, 0.06), grav: -0.05, drag: 3, curve: curve.puff, paint: (t, c) => c.setRGB(0.95, 0.96, 0.98) });
+      if (frameNo % 2 === 1) dustPuff(out.clone().addScaledVector(ax, 0.35), 0.5, 0.12);
+      Snd.hiss(0.4 + 0.6 * k, lit);
+      const v = phys.vel(g.body), sp = Math.hypot(v.x, v.y, v.z);
+      if (sp > 4.5 && !g.rocket) { g.rocket = true; hPts(200, out, 'Raketa!', { cls: 'g', heat: 2 }); }
+    }
+    if (g.fuse <= 0) gasExplode(g);
+  }
+}
+function gasExplode(g) {
+  if (g.broken) return; g.broken = true; g.fuse = 0;
+  const P = g.bb.getCenter(V3());
+  if (g.body) { const p = phys.pos(g.body), q = phys.rot(g.body); P.set(0, 0.3, 0).applyQuaternion(_q.set(q.x, q.y, q.z, q.w)).add(_p.set(p.x, p.y, p.z)); phys.remove(g.body); g.body = null; }
+  PROP.root.remove(g.g);
+  for (let i = 0; i < 14; i++) chunks.spawn({ p: P.clone(), v: rndDir().multiplyScalar(rnd(6, 14)).add(V3(0, 4, 0)), life: rnd(1.6, 2.4), size: rnd(0.05, 0.12), dim: V3(1, rnd(0.08, 0.2), rnd(0.6, 1.2)), bounce: 0.35, spin: rnd(8, 18), curve: curve.hold, paint: (t, c) => c.setHex(0x8e2219) });
+  if (g.leakFrom) { const d = Math.hypot(P.x - g.leakFrom.x, P.z - g.leakFrom.z); if (d > 1.5) hBizarre(30 + d * 12, `Plynová lahev ujela ${fmt1(d)} m a teprve pak bouchla`); }
+  explodeAt(P, { s: 1.35, src: 'gas', trig: !!g.trig });
 }
 const ballGeo = new THREE.SphereGeometry(0.28, 24, 14), ballMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.85, roughness: 0.32 });
 function fireBall() {
@@ -5251,6 +5604,8 @@ function houseUpdate(rdt, dt) {
   if (H.state === 'off') return;
   TREE.time.value += rdt;
   if (H.state === 'play') {
+    H.gt += dt;
+    if (H.comboT > 0) { H.comboT -= rdt; if (H.comboT <= 0) { H.comboN = 0; H.mult = 1; renderHScore(); } }
     movePlayer(rdt);
     if (PL.body) phys.moveKinematic(PL.body, { x: PL.p.x, y: PL.p.y + 0.88, z: PL.p.z }, rdt);
     H.cool -= rdt;
@@ -5292,6 +5647,7 @@ function houseUpdate(rdt, dt) {
   }
   for (const c of H.charges) c.led.visible = Math.sin(clock * 9) > 0;
   propUpdate(rdt);
+  if (H.state === 'play') gasUpdate(dt);
   crumbs.update(dt); glassBits.update(dt); splinters.update(dt); potShards.update(dt); feathers.update(dt); papers.update(dt); leaves.update(dt);
   flushDirty(H.state === 'play' ? 6 : 64, 8);
   ambStep(2600, clock);
@@ -5301,8 +5657,12 @@ function houseUpdate(rdt, dt) {
     H.hudT = 0.2;
     const pv = H.orig ? H.gone / H.orig : 0, pr = H.roofN ? H.roofDown / H.roofN : 0, pct = Math.min(100, Math.round((H.roofN ? pv * 0.85 + pr * 0.15 : pv) * 100));
     if (pct !== H.pct) { H.pct = pct; $('hPct').textContent = pct; $('hBar').style.width = pct + '%'; }
+    // body za objem: kostka zdi 0,5, prvek střechy 12; souvislé bourání drží kombo naživu, ale nezvedá ho
+    const dg = H.gone - H.goneS, dr = H.roofDown - H.roofS;
+    if (dg > 0 || dr > 0) { H.goneS = H.gone; H.roofS = H.roofDown; H.score += Math.round((dg * 0.5 + dr * 12) * H.mult); if (dg > 30 && H.comboT > 0) H.comboT = Math.max(H.comboT, 1.2); renderHScore(); }
     const ms = [[10, 'Rozjezd'], [25, 'Čtvrtina domu je pryč'], [50, 'Půlka domu leží'], [75, 'Zbývá jen kostra'], [90, 'Srovnáno se zemí']];
-    for (const [v, t] of ms) if (pct >= v && H.milestone < v) { H.milestone = v; hEvt(t); if (v >= 50) Snd.fanfare(); }
+    for (const [v, t] of ms) if (pct >= v && H.milestone < v) { H.milestone = v; const b = v * 30; H.score += b; renderHScore(); hEvt(`${t} · +${fmt(b)}`); if (v >= 50) Snd.fanfare(); }
+    $('hCombo').style.width = (Math.max(0, H.comboT) / COMBO_T * 100).toFixed(0) + '%';
     $('hInfo').textContent = `Trosek ${H.debris.length} · nálože ${H.charges.length ? H.charges.length + ' položeno' : 'žádné'}`;
   }
   if (H.evtT > 0) { H.evtT -= rdt; if (H.evtT <= 0) $('hEvt').style.opacity = 0; }
@@ -5354,6 +5714,7 @@ const toolModels = (() => {
     mk([new THREE.CylinderGeometry(0.055, 0.06, 0.32, 12), yellow, 0, 0, 0], [new THREE.BoxGeometry(0.2, 0.04, 0.05), dark, 0, 0.17, 0], [new THREE.CylinderGeometry(0.012, 0.012, 0.22, 8), steel, 0, -0.26, 0]),
     mk([new THREE.BoxGeometry(0.16, 0.1, 0.06), chargeMat, 0, 0, 0], [new THREE.BoxGeometry(0.17, 0.02, 0.065), dark, 0, 0.02, 0]),
     mk([new THREE.CylinderGeometry(0.07, 0.08, 0.5, 14), dark, 0, 0, 0, Math.PI / 2], [new THREE.TorusGeometry(0.075, 0.015, 6, 16), steel, 0, 0, -0.25]),
+    mk([new THREE.BoxGeometry(0.12, 0.13, 0.24), new THREE.MeshStandardMaterial({ color: 0xd8641e, roughness: 0.55 }), 0, 0, 0.08], [new THREE.BoxGeometry(0.03, 0.06, 0.42), steel, 0, -0.01, -0.22], [new THREE.BoxGeometry(0.035, 0.075, 0.43), dark, 0, -0.01, -0.22], [new THREE.TorusGeometry(0.05, 0.012, 6, 12), dark, 0, 0.09, 0.08, 0, Math.PI / 2]),
   ];
 })();
 toolGroup.position.set(0.3, -0.3, -0.55);
@@ -5363,7 +5724,9 @@ function updateTool(rdt) {
   toolModels.forEach((m, i) => { m.visible = play && i === H.tool; });
   H.swing = Math.max(0, H.swing - rdt * (H.tool === 1 ? 3 : 6));
   const s = H.swing, tool = TOOLS[H.tool];
-  if (tool.key === 'drill') { toolGroup.rotation.set(-0.15, 0, 0); toolGroup.position.set(0.28 + (H.hold ? rnd(-0.004, 0.004) : 0), -0.28, -0.5 + (H.hold ? rnd(-0.006, 0.006) : 0)); }
+  if (H.charging) { H.charge = Math.min(1.2, (H.charge || 0) + rdt / 1.2); const c = Math.min(1, H.charge); toolGroup.rotation.set(0.5 * c, 0, 0.25 + 0.15 * c); toolGroup.position.set(0.3 + rnd(-1, 1) * 0.004 * c, -0.3 + 0.08 * c, -0.55 + 0.06 * c); }
+  else if (tool.key === 'saw') { const v = H.sawT > 0 ? 0.006 : 0.002; H.sawT = Math.max(0, (H.sawT || 0) - rdt); toolGroup.rotation.set(-0.1, 0, 0); toolGroup.position.set(0.26 + rnd(-v, v), -0.27 + rnd(-v, v), -0.5); }
+  else if (tool.key === 'drill') { toolGroup.rotation.set(-0.15, 0, 0); toolGroup.position.set(0.28 + (H.hold ? rnd(-0.004, 0.004) : 0), -0.28, -0.5 + (H.hold ? rnd(-0.006, 0.006) : 0)); }
   else if (tool.key === 'ball') { toolGroup.rotation.set(0, 0, 0); toolGroup.position.set(0.28, -0.24, -0.5 + s * 0.08); }
   else { toolGroup.rotation.set(-0.9 * Math.sin(s * Math.PI) * (tool.key === 'charge' ? 0.3 : 1), 0, 0.25); toolGroup.position.set(0.3, -0.3 + Math.sin(s * Math.PI) * 0.05, -0.55); }
   // značka zásahu
@@ -5372,7 +5735,7 @@ function updateTool(rdt) {
     const hit = houseRay(camera.position, _d, tool.range);
     if (hit && hit.kind !== 'ground') {
       reticle.visible = true; reticle.position.copy(hit.p).addScaledVector(hit.n, 0.015);
-      reticle.quaternion.setFromUnitVectors(V3(0, 0, 1), hit.n); reticle.scale.setScalar(tool.r * 1.15);
+      reticle.quaternion.setFromUnitVectors(V3(0, 0, 1), hit.n); reticle.scale.setScalar(tool.r * 1.15 * (H.charging ? 1 + 0.85 * Math.min(1, H.charge) : 1));
       const can = hit.kind === 'vox' ? VM[hit.m].h <= tool.pow : hit.kind === 'roof' ? !((hit.el.kind === 'rafter' || hit.el.kind === 'tie') && tool.pow < 3) : true;
       retRing.material.color.setRGB(can ? 3.2 : 3.6, can ? 2.3 : 0.5, can ? 0.4 : 0.3);
     } else reticle.visible = false;
@@ -5381,7 +5744,7 @@ function updateTool(rdt) {
 function renderTools() {
   $('tools').innerHTML = TOOLS.map((t, i) => `<div class="tool${i === H.tool ? ' on' : ''}"><small>${i + 1}${t.key === 'charge' && H.charges.length ? ' · ' + H.charges.length + '×' : ''}</small><b>${t.name}</b><span>${t.note}</span></div>`).join('');
 }
-function setTool(i) { H.tool = (i + TOOLS.length) % TOOLS.length; renderTools(); Snd.tick(4 + H.tool); }
+function setTool(i) { H.tool = (i + TOOLS.length) % TOOLS.length; H.charging = false; H.charge = 0; renderTools(); Snd.tick(4 + H.tool); }
 
 // ---------- režim domu: vstup, editor, hra, pauza, konec ----------
 Object.assign(Snd, {
@@ -5390,8 +5753,59 @@ Object.assign(Snd, {
     if (h <= 1) { this.tone('triangle', 170 + Math.random() * 70, 110, 0.12, 0.2); this.noise('bandpass', 900, 380, 0.1, 0.22, 1.2); }
     else { this.noise('bandpass', 2300, 480, tool === 'drill' ? 0.06 : 0.16, tool === 'drill' ? 0.16 : 0.42, 0.9); this.tone('sine', 120, 55, 0.12, tool === 'sledge' ? 0.55 : tool === 'drill' ? 0.08 : 0.25); }
   },
+  saw(k) { if (!this.ok('saw', 55)) return; this.noise('bandpass', 1700 + Math.random() * 500, 2400, 0.09, 0.22 * k, 2.5); this.tone('sawtooth', 115 + Math.random() * 10, 105, 0.09, 0.07 * k); },
   ping() { if (!this.ok('ping', 70)) return; const f = 1500 + Math.random() * 500; this.tone('sine', f, f * 0.98, 0.25, 0.12); this.tone('sine', f * 2.7, f * 2.6, 0.15, 0.04); },
+  hiss(k, lit) { if (!this.ok('hiss', 70)) return; const f = 3800 + 2600 * k; this.noise('highpass', f, f * 1.1, 0.14, 0.05 + 0.1 * k, 0.6); if (lit) this.noise('lowpass', 500, 300, 0.14, 0.12, 0.8); },
+  boomGas() { if (!this.ok('boomGas', 90)) return; this.noise('lowpass', 900, 40, 2.4, 0.9, 0.6, 0.03); this.tone('sine', 62, 22, 1.6, 0.8, 0.02); },
 });
+const fmt1 = v => (Math.round(v * 10) / 10).toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const boomsWord = n => n < 5 ? 'výbuchy' : 'výbuchů';
+// ---------- skóre bourání: body za objem a události, kombo je násobí; řetěz výbuchů; nejbizarnější okamžik do závěrečného hodnocení ----------
+const COMBO_T = 2.8;
+function hScoreReset() {
+  Object.assign(H, { score: 0, mult: 1, comboN: 0, comboT: 0, goneS: H.gone || 0, roofS: H.roofDown || 0, gt: 0, chain: { n: 0, t: -9, max: 0 }, chainSlow: -9, bizarre: null, stat: { booms: 0, gas: 0, props: 0, falls: 0 } });
+  renderHScore();
+}
+function hPts(pts, P, label, o = {}) {
+  if (H.state !== 'play') return 0;
+  if (o.combo !== false) { H.comboN += o.heat ?? 1; H.comboT = COMBO_T; const m = Math.min(4, 1 + Math.floor(H.comboN / 6) * 0.5); if (m > H.mult) { H.mult = m; bump('hMultBox'); } }
+  const v = Math.round(pts * H.mult); H.score += v;
+  if (label && P) popup(`${label} +${fmt(v)}`, P, o.cls || 'c');
+  renderHScore(); return v;
+}
+function hBizarre(w, text) { if (H.state === 'play' && (!H.bizarre || w > H.bizarre.w)) H.bizarre = { w, text }; }
+function hBoom(P, src, trig) {
+  if (H.state !== 'play') return;
+  H.stat.booms++; if (src === 'gas') H.stat.gas++;
+  // řetěz = výbuch, který odpálil jiný výbuch (tlaková vlna zapálila lahev, sud nebo nálož); herní čas, ať ho zpomalení nepřetrhne
+  const ch = H.chain; ch.n = trig && H.gt - ch.t < 3 ? ch.n + 1 : 1; ch.t = H.gt; ch.max = Math.max(ch.max, ch.n);
+  hPts(src === 'gas' ? 500 : 300, P, src === 'gas' ? 'Plynová lahev' : src === 'sud' ? 'Sud' : src === 'nalož' ? 'Nálož' : 'Výbuch', { cls: 'm', heat: 2 });
+  if (ch.n >= 2) {
+    hPts(250 * ch.n, P, `Řetězovka ×${ch.n}`, { cls: 'g', combo: false }); hEvt(`Řetězová reakce · ${ch.n} ${boomsWord(ch.n)}`);
+    if (clock - H.chainSlow > 0.8) { H.chainSlow = clock; slowmo(0.2, 0.3, 1.0); }
+    hBizarre(40 * ch.n, `Řetězová reakce: ${ch.n} ${boomsWord(ch.n)} za sebou`);
+  }
+}
+// odpadlý kus domu (detach): velké zřícení zpomalí čas a počítá se do bizarností
+function hCollapse(n, P, ex) {
+  if (H.state !== 'play' || n < 600) return;
+  H.stat.falls++;
+  const big = n > 5000;
+  hPts(n * 0.3, P, big ? 'Velké zřícení' : 'Zřícení', { cls: big ? 'g' : 'c', heat: big ? 2 : 1 });
+  if (big && !ex && clock - S.lastSlow > 1.2) { S.lastSlow = clock; slowmo(0.3, 0.25, 0.9); }
+  hBizarre(n / 120, `Najednou se zřítilo ${fmt1(n / 1000)} m³ domu`);
+}
+function renderHScore() {
+  if (!$('hScore')) return;
+  $('hScore').textContent = fmt(H.score || 0); $('hMult').textContent = fmtMult(H.mult || 1); $('hMultBox').classList.toggle('on', (H.mult || 1) > 1);
+}
+// hodnocení: body na 1000 kostek původního domu (velký dům nemá zadarmo víc) A zbořená část — samé kombo bez bourání na vrchol nestačí
+const RANKS = [[0, 0, 'Víkendový kutil'], [150, 15, 'Pomocný dělník'], [450, 35, 'Demoliční parta'], [900, 60, 'Mistr demolice'], [1600, 85, 'Legenda bourání']];
+function hRank() {
+  const per = H.score / Math.max(1, H.orig) * 1000; let i = 0;
+  for (let k = 0; k < RANKS.length; k++) if (per >= RANKS[k][0] && H.pct >= RANKS[k][1]) i = k;
+  return { stars: '★'.repeat(i + 1) + '☆'.repeat(RANKS.length - 1 - i), title: RANKS[i][2], per };
+}
 let houseCtx = null, editTimer = 0;
 const EDIT_SHIFT = () => innerWidth >= 900 ? Math.min(400, innerWidth * 0.32) / 2 : 0;
 function houseEnter() {
@@ -5444,17 +5858,19 @@ function houseEdit() {
 }
 function housePlay(fresh) {
   if (fresh) houseBuild(H.spec);
+  clearPops();
   camera.clearViewOffset(); camera.updateProjectionMatrix();
   $('editor').hidden = true; $('ov').hidden = true; $('cardEnd').hidden = true; $('cardPause').hidden = true; $('hhud').hidden = false;
   PL.p.copy(H.spawn.p); PL.p.y = Math.max(PL.p.y, gH(PL.p.x, PL.p.z)); PL.v.set(0, 0, 0); PL.yaw = H.spawn.yaw; PL.pitch = -0.04; PL.fly = false; PL.eye = 0; PL.keys.clear();
   housePhysics();
   H.state = 'play'; S.state = 'house'; H.cool = 0; H.hold = false; H.t0 = clock; H.used = { charges: 0, balls: 0 }; H.hudT = 0; H.ignoreUnlock = false;
+  hScoreReset();
   renderTools(); renderFly();
   $('hName').textContent = H.spec.name; $('hAttr').hidden = !H.spec.osm; $('hCz').hidden = !H.spec.cz; $('hEngine').textContent = 'fyzika ' + phys.name;
   $('hPct').textContent = '0'; $('hBar').style.width = '0%';
   canvas.focus();
   requestLock();
-  hEvt(H.spec.osm ? 'Vnitřek je vymyšlený, mapa ho nezná' : 'Klikni a bourej · 1–5 mění nářadí');
+  hEvt(H.spec.osm ? 'Vnitřek je vymyšlený, mapa ho nezná' : 'Klikni a bourej · 1–6 mění nářadí');
 }
 function requestLock() {
   if (H.lockFailed) { $('lockHint').hidden = false; return; }
@@ -5477,15 +5893,18 @@ document.addEventListener('pointerlockerror', () => lockFail());
 function housePause() {
   if (H.state !== 'play') return;
   H.state = 'pause'; H.hold = false; PL.keys.clear();
-  $('pauseLines').innerHTML = [['Zbořeno', H.pct + ' %'], ['Trosek', String(H.debris.length)], ['Odpáleno náloží', String(H.used.charges)]].map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
+  $('pauseLines').innerHTML = [['Zbořeno', H.pct + ' %'], ['Skóre', fmt(H.score)], ['Trosek', String(H.debris.length)], ['Odpáleno náloží', String(H.used.charges)]].map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   $('cardTitle').hidden = true; $('cardEnd').hidden = true; $('cardPlace').hidden = true; $('cardPause').hidden = false; $('ov').hidden = false;
   setTimeout(() => $('pResume').focus(), 50);
 }
 function houseResume() { $('ov').hidden = true; $('cardPause').hidden = true; H.state = 'play'; canvas.focus(); requestLock(); }
 function houseEnd() {
-  H.state = 'end'; $('cardPause').hidden = true; $('hhud').hidden = true;
+  H.state = 'end'; clearPops(); $('cardPause').hidden = true; $('hhud').hidden = true;
   const t = Math.round(clock - H.t0), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, '0');
-  showEnd(`Zbořeno ${H.pct} %`, H.spec.name, [['Čas', `${mm}:${ss}`], ['Trosek', String(H.debris.length)], ['Nálože', String(H.used.charges)], ['Koule', String(H.used.balls)]],
+  const rk = hRank(), key = 'hbest.' + H.spec.name, best = store.get(key, 0), rec = H.score > best;
+  if (rec) store.set(key, H.score);
+  showEnd(rec && best ? 'Nový rekord!' : `Zbořeno ${H.pct} %`, fmt(H.score), [['Hodnocení', `${rk.stars} ${rk.title}`], ['Zbořeno', H.pct + ' %'], ['Nejbizarnější destrukce', H.bizarre ? H.bizarre.text : H.stat.gas ? 'nic, o čem by se vyprávělo' : 'nic šíleného — zkus plynovou lahev'],
+    ['Nejdelší řetězovka', H.chain.max >= 2 ? `${H.chain.max} ${boomsWord(H.chain.max)}` : '—'], ['Výbuchy', `${H.stat.booms}${H.stat.gas ? ` (lahve ${H.stat.gas})` : ''}`], ['Čas', `${mm}:${ss}`], ['Rekord domu', fmt(Math.max(best, H.score))]],
     'Postavit znovu', 'Enter postaví dům znovu.', () => { $('cardEnd').hidden = true; housePlay(true); }, { alt: 'Upravit dům', onAlt: () => houseEdit() });
 }
 function renderFly() { $('hFly').innerHTML = PL.fly ? '<b>Létání</b> <kbd>mezerník</kbd> nahoru <kbd>C</kbd> dolů <kbd>F</kbd> chůze' : '<b>Chůze</b> <kbd>F</kbd> létání'; }
@@ -5704,7 +6123,7 @@ function editChanged() {
 function houseKey(e, down) {
   if (H.state === 'play') {
     if (down) {
-      if (/^Digit[1-5]$/.test(e.code)) { setTool(+e.code.slice(5) - 1); return; }
+      if (/^Digit[1-6]$/.test(e.code)) { setTool(+e.code.slice(5) - 1); return; }
       if (e.code === 'KeyE') { detonateAll(); return; }
       if (e.code === 'KeyF') { PL.fly = !PL.fly; PL.v.y = 0; renderFly(); hEvt(PL.fly ? 'Létání zapnuto' : 'Chůze'); return; }
       if (e.code === 'KeyM') { Snd.init(); Snd.setMuted(!Snd.muted); hEvt(Snd.muted ? 'Zvuk vypnutý' : 'Zvuk zapnutý'); return; }
@@ -5723,7 +6142,7 @@ function houseDown(e) {
   if (H.state === 'edit' || H.state === 'end') { PL.drag = { x: e.clientX, y: e.clientY, orbit: true }; return; }
   if (H.state !== 'play') return;
   if (!PL.locked && !H.lockFailed) { requestLock(); return; }
-  if (e.button === 0) { H.hold = true; useTool(); }
+  if (e.button === 0) toolPress();
   else if (e.button === 2) { if (TOOLS[H.tool].key === 'charge') detonateAll(); else if (H.lockFailed) PL.drag = { x: e.clientX, y: e.clientY }; }
 }
 function houseMove(e) {
@@ -5733,7 +6152,7 @@ function houseMove(e) {
   if (PL.drag.orbit) H.orbit -= dx * 0.006;
   else { PL.yaw -= dx * 0.005; PL.pitch = clamp(PL.pitch - dy * 0.005, -1.5, 1.5); }
 }
-addEventListener('pointerup', () => { if (S.kind === 'house') { H.hold = false; PL.drag = null; } });
+addEventListener('pointerup', e => { if (S.kind === 'house') { if (e.button === 0) toolRelease(); else H.hold = false; PL.drag = null; } });
 document.addEventListener('mousemove', e => { if (S.kind === 'house' && PL.locked && e.target !== canvas) houseMove(e); });
 addEventListener('resize', () => { if (S.kind === 'house' && H.state === 'edit') camera.setViewOffset(innerWidth, innerHeight, -EDIT_SHIFT(), 0, innerWidth, innerHeight); });
 
@@ -5800,9 +6219,21 @@ $('play').addEventListener('click', () => {
 
 // ---------- smyčka ----------
 let last = performance.now(), frameNo = 0, speedup = 1;
+// adaptivní rozlišení: drží plynulost na slabší grafice. Měří skutečnou délku snímku (klouzavý průměr), po 2 s rozhodne:
+// pomalé snímky → menší pixel ratio, rezerva → zpět k nativnímu (nejvýš 2). Skryté okno (dlouhé pauzy) se nepočítá.
+const DYN = { ema: 1 / 60, t: 0, max: Math.min(devicePixelRatio, 2), pr: Math.min(devicePixelRatio, 2), off: /nodyn/.test(location.hash) };   // #nodyn pro testy se stálým rozlišením
+function dynRes(raw) {
+  if (DYN.off || raw > 0.25 || raw <= 0) return;
+  DYN.ema += (raw - DYN.ema) * 0.05; DYN.t += raw;
+  if (DYN.t < 2) return; DYN.t = 0;
+  const pr = DYN.ema > 0.024 && DYN.pr > 0.7 ? DYN.pr - 0.125 : DYN.ema < 0.0175 && DYN.pr < DYN.max ? Math.min(DYN.max, DYN.pr + 0.125) : DYN.pr;
+  if (pr === DYN.pr) return;
+  DYN.pr = pr; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
+}
 function frame(now) {
   requestAnimationFrame(frame);
   const t = performance.now(), rdt = clamp((t - last) / 1000, 0, 1 / 30) * speedup;   // časová značka rAF umí jít zpět, záporný krok by vracel svět
+  if (speedup === 1) dynRes((t - last) / 1000);
   last = t; clock += rdt; frameNo++;
   if (slowHold > 0) slowHold -= rdt; else if (timeScale < 1) timeScale = Math.min(1, timeScale + (1 - slowMin) * rdt / slowRel);
   const dt = rdt * timeScale;
@@ -5880,6 +6311,33 @@ window.kaskada = {
     info: () => ({ state: H.state, nx: H.nx, ny: H.ny, nz: H.nz, chunks: H.chunks.filter(Boolean).length, cols: H.cols.reduce((a, c) => a + (c ? c.length : 0), 0), roof: H.roof.length, roofDown: H.roofDown, panes: H.panes.length, panesAlive: H.panes.filter(p => p.alive).length, debris: H.debris.length, pct: H.pct, gone: H.gone, orig: H.orig, buildMs: H.buildMs, p: PL.p.toArray().map(v => +v.toFixed(2)), ground: PL.ground, tool: H.tool, rooms: H.info.rooms && H.info.rooms.length, types: H.info.types, flights: H.info.flights && H.info.flights.length, doors: H.info.doors && H.info.doors.length, phys: phys && phys.name, exposure: +renderer.toneMappingExposure.toFixed(2), meter: H.meter && +H.meter.toFixed(3), lock: PL.locked, lockFailed: !!H.lockFailed }),
     look(yaw, pitch) { PL.yaw = yaw; PL.pitch = pitch; },
     pos(x, y, z) { PL.p.set(x, y, z); PL.v.set(0, 0, 0); },
+    // ladění soudržnosti: komponenta kostek od bodu, do ny·nx·nz kroků; vrací velikost, rozsah a zda sahá na zem
+    comp(x, y, z, lim = 20000) {
+      const { nx, ny, nz, vox } = H, sY = nx * nz, gx = Math.floor((x - H.ox) / VS), gy = Math.floor(y / VS), gz = Math.floor((z - H.oz) / VS), i0 = gx + nx * gz + sY * gy;
+      if (!vox[i0]) return { empty: true };
+      const seen = new Set([i0]), q = [i0]; let bb = [gx, gx, gy, gy, gz, gz], ground = false;
+      while (q.length && seen.size < lim) { const i = q.pop(), xx = i % nx, zz = ((i / nx) | 0) % nz, yy = (i / sY) | 0; if (yy === 0) ground = true;
+        bb = [Math.min(bb[0], xx), Math.max(bb[1], xx), Math.min(bb[2], yy), Math.max(bb[3], yy), Math.min(bb[4], zz), Math.max(bb[5], zz)];
+        for (const j of [xx > 0 ? i - 1 : -1, xx < nx - 1 ? i + 1 : -1, zz > 0 ? i - nx : -1, zz < nz - 1 ? i + nx : -1, yy > 0 ? i - sY : -1, yy < ny - 1 ? i + sY : -1]) if (j >= 0 && vox[j] && !seen.has(j)) { seen.add(j); q.push(j); } }
+      return { n: seen.size, ground, capped: seen.size >= lim, bb: [H.ox + bb[0] * VS, H.ox + (bb[1] + 1) * VS, bb[2] * VS, (bb[3] + 1) * VS, H.oz + bb[4] * VS, H.oz + (bb[5] + 1) * VS].map(v => +v.toFixed(2)) };
+    },
+    // ladění: z bodu uvnitř výřezu najdi první kostku mimo úhlový výřez (±a rad od pohledu z oka) → kudy kus drží
+    bridge(x, y, z, a = 0.3) {
+      const { nx, ny, nz, vox } = H, sY = nx * nz, e = camera.position, yaw = PL.yaw, i0 = Math.floor((x - H.ox) / VS) + nx * Math.floor((z - H.oz) / VS) + sY * Math.floor(y / VS);
+      if (!vox[i0]) return { empty: true };
+      const prev = new Map([[i0, -1]]), q = [i0];
+      const pos = i => [H.ox + (i % nx + 0.5) * VS, ((i / sY) | 0) * VS + 0.05, H.oz + ((((i / nx) | 0) % nz) + 0.5) * VS];
+      while (q.length) { const i = q.shift(), [px, py, pz] = pos(i), dx = px - e.x, dy = py - e.y, dz = pz - e.z, h = Math.hypot(dx, dz);
+        const ay = Math.atan2(-dx, -dz) - yaw, ap = Math.atan2(dy, h);
+        if (Math.abs(ay) > a || Math.abs(ap) > a) { const path = []; for (let k = i, c = 0; k >= 0 && c < 6; k = prev.get(k), c++) path.push([...pos(k).map(v => +v.toFixed(2)), vox[k]]); return { steps: prev.size, path }; }
+        const xx = i % nx, zz = ((i / nx) | 0) % nz, yy = (i / sY) | 0;
+        for (const j of [xx > 0 ? i - 1 : -1, xx < nx - 1 ? i + 1 : -1, zz > 0 ? i - nx : -1, zz < nz - 1 ? i + nx : -1, yy > 0 ? i - sY : -1, yy < ny - 1 ? i + sY : -1]) if (j >= 0 && vox[j] && !prev.has(j)) { prev.set(j, i); q.push(j); }
+        if (prev.size > 50000) return { capped: true };
+      }
+      return { isolated: true, n: prev.size };
+    },
+    probe(maxd = 3) { houseCamera(0); camera.updateMatrixWorld(); camera.getWorldDirection(_d); const h = voxRay(camera.position, _d, maxd); return h ? { t: +h.t.toFixed(3), m: h.m, p: h.p.toArray().map(v => +v.toFixed(2)) } : null; },
+    press() { houseCamera(0); camera.updateMatrixWorld(); toolPress(); }, release() { houseCamera(0); camera.updateMatrixWorld(); toolRelease(); },
     tool(i) { setTool(i); }, use() { H.cool = 0; houseCamera(0); camera.updateMatrixWorld(); useTool(); }, hold(on) { houseCamera(0); camera.updateMatrixWorld(); H.hold = on; }, detonate() { detonateAll(); },
     key(code, down) { houseKey({ code, preventDefault() {} }, down); },
     scatter(x, z, k) {   // test: kusy shodit na dané místo terénu (trosky i tašky)
@@ -5890,7 +6348,7 @@ window.kaskada = {
       }
       return n;
     },
-    sim(sec) { const h = 1 / 60; for (let t = 0; t < sec; t += h) { phys.step(h); postStep(); houseUpdate(h, h); } return PL.p.toArray().map(v => +v.toFixed(2)); },
+    sim(sec) { const h = 1 / 60; for (let t = 0; t < sec; t += h) { houseCamera(h); camera.updateMatrixWorld(); updateTool(h); phys.step(h); postStep(); houseUpdate(h, h); } return PL.p.toArray().map(v => +v.toFixed(2)); },
     fly(on) { PL.fly = on; renderFly(); }, play() { housePlay(false); }, edit() { houseEdit(); }, end() { houseEnd(); }, pause() { housePause(); }, resume() { houseResume(); },
     spec: () => H.spec, set(k, v) { H.spec[k] = v; editChanged(); },
     open(spec) { houseOpen(spec || DEMO_SPEC, demoContext()); },
@@ -5937,7 +6395,27 @@ window.kaskada = {
     },
     orthoTex(n) { const im = ORTHO_U[n] && ORTHO_U[n].value.image; return im && im.toDataURL ? im.toDataURL('image/png') : null; },
     center: () => H.center.toArray(), spawn: () => H.spawn && { p: H.spawn.p.toArray(), yaw: H.spawn.yaw },
-    treesInfo: () => ({ imp: TREE.protos ? TREE.protos.map(p => { const b = new Uint8Array(512 * 256 * 4); renderer.readRenderTargetPixels(p.rt, 0, 0, 512, 256, b); let z = 0, o = 0; for (let i = 3; i < b.length; i += 4) { if (b[i] < 30) z++; else if (b[i] > 200) o++; } return [z, o, b[3], b[7]]; }) : null, protos: TREE.protos ? TREE.protos.length : 0, meshes: TREE.meshes.length, inst: TREE.meshes.reduce((a, m) => a + m.count, 0), pts: TREE.pts ? TREE.pts.length : 0, blobs: trunks.count }),
+    streetInfo: () => STREET.info || null,
+    dyn: () => ({ pr: DYN.pr, ema: +DYN.ema.toFixed(4), max: DYN.max }),
+    // měření: jeden snímek (všechny průchody včetně stínů) → draw cally a trojúhelníky; rozpis, co vrhá stín
+    perf(opt = {}) {
+      houseCamera(0); camera.updateMatrixWorld(); const ge = gtao.enabled; if (opt.noGtao) gtao.enabled = false;
+      const inf = renderer.info; inf.autoReset = false; inf.reset(); key.shadow.needsUpdate = true; composer.render();
+      const out = { calls: inf.render.calls, tris: inf.render.triangles, geos: inf.memory.geometries, tex: inf.memory.textures }; inf.autoReset = true; gtao.enabled = ge;
+      const tri = o => { const g = o.geometry; if (!g) return 0; const n = g.index ? g.index.count / 3 : g.attributes.position ? g.attributes.position.count / 3 : 0; return Math.round(n * (o.isInstancedMesh ? o.count : 1)); };
+      let cast = 0, castCulled = 0, all = 0; const big = [];
+      scene.traverseVisible(o => { if (!o.isMesh) return; const t = tri(o); all += t; if (o.castShadow) { cast += t; if (!o.frustumCulled) castCulled += t; } big.push([o.name || o.material?.name || o.material?.type, t, o.castShadow ? 1 : 0, o.frustumCulled ? 1 : 0]); });
+      const fr = new THREE.Frustum().setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)); let inView = 0;
+      scene.traverseVisible(o => { if (!o.isMesh) return; if (!o.frustumCulled) { inView += tri(o); return; } if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); const bs = (o.boundingSphere || o.geometry.boundingSphere).clone().applyMatrix4(o.matrixWorld); if (fr.intersectsSphere(bs)) inView += tri(o); });
+      const grp = {}; const gname = o => { let p = o; while (p && p !== scene) { if (p === houseRoot) return 'dum'; if (p === ctxGroup) return TREE.meshes.includes(o) ? 'stromy' : STREET.meshes.includes(o) ? 'ulice' : 'okoli'; p = p.parent; } return 'scena'; };
+      scene.traverseVisible(o => { if (!o.isMesh) return; const g = gname(o); grp[g] ||= [0, 0]; grp[g][0]++; grp[g][1] += tri(o); }); out.groups = grp;
+      big.sort((a, b) => b[1] - a[1]); out.sceneTris = all; out.viewTris = inView; out.castTris = cast; out.castNoCull = castCulled; out.top = big.slice(0, 12); return out;
+    },
+    score: () => ({ score: H.score, mult: H.mult, comboN: H.comboN, chain: H.chain, bizarre: H.bizarre, stat: H.stat, rank: hRank() }),
+    gas: () => PROP.list.filter(p => p.gas).map(p => ({ p: p.bb.getCenter(V3()).toArray().map(v => +v.toFixed(2)), v: p.body ? +Math.hypot(...Object.values(phys.vel(p.body)).slice(0, 3)).toFixed(2) : 0, w: p.body ? +Math.hypot(...['x', 'y', 'z'].map(k => phys.angVel(p.body)[k])).toFixed(2) : 0, m: p.body ? +phys.mass(p.body).toFixed(1) : 0, ready: p.ready, body: !!p.body, leak: p.leak, fuse: +(p.fuse || 0).toFixed(2), hp: p.hp, broken: p.broken, rocket: !!p.rocket })),
+    gasPut(i, x, y, z) { const g = PROP.list.filter(p => p.gas)[i]; if (!g || !g.body) return false; phys.setPos(g.body, { x, y, z }); phys.setVel(g.body, { x: 0, y: 0, z: 0 }); phys.setAngVel(g.body, { x: 0, y: 0, z: 0 }); return true; },
+    gasHit(i, dmg, ex) { const g = PROP.list.filter(p => p.gas)[i]; if (g) propHit(g, g.bb.getCenter(V3()), dmg, null, ex); return !!g; },
+    treesInfo: () => ({ lod: TREE.lod, imp: TREE.protos ? TREE.protos.map(p => { const b = new Uint8Array(512 * 256 * 4); renderer.readRenderTargetPixels(p.rt, 0, 0, 512, 256, b); let z = 0, o = 0; for (let i = 3; i < b.length; i += 4) { if (b[i] < 30) z++; else if (b[i] > 200) o++; } return [z, o, b[3], b[7]]; }) : null, protos: TREE.protos ? TREE.protos.length : 0, meshes: TREE.meshes.length, inst: TREE.meshes.reduce((a, m) => a + m.count, 0), pts: TREE.pts ? TREE.pts.length : 0, blobs: trunks.count }),
     terrain: (pts = []) => ({ on: TERR.on, B: +TERR.B.toFixed(2), min: +TERR.min.toFixed(2), max: +TERR.max.toFixed(2), box: TERR.box && TERR.box.map(v => +v.toFixed(1)), at: pts.map(([x, z]) => +gH(x, z).toFixed(2)),
       farY: +farGround.position.y.toFixed(1), tris: groundMesh.geometry.index ? groundMesh.geometry.index.count / 3 : 0, farTris: farTerr.geometry.index ? farTerr.geometry.index.count / 3 : 0, player: PL.p.toArray().map(v => +v.toFixed(2)), ground: PL.ground,
       deb: (() => {
