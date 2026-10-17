@@ -145,6 +145,20 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 .hmult.on{opacity:1}
 .combo{width:150px;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
 .combo i{display:block;height:100%;width:0;background:#ff5a46;transition:width .2s linear}
+.secret{position:absolute;left:50%;top:24%;transform:translate(-50%,-50%) scale(.82);text-align:center;opacity:0;transition:opacity .3s,transform .45s cubic-bezier(.2,1.5,.4,1)}
+.secret.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.secret small{display:block;font:600 13px var(--f-ui);letter-spacing:.32em;text-transform:uppercase;color:var(--hazard)}
+.secret b{display:block;font:800 56px/1 var(--f-display);text-transform:uppercase;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.5),0 0 34px rgba(255,90,200,.5)}
+.secret span{display:block;font:600 17px var(--f-ui);margin-top:8px}
+.bomb{position:absolute;left:50%;top:92px;transform:translateX(-50%);font:800 32px/1 var(--f-display);letter-spacing:.06em;color:#ff3b2f;background:rgba(24,6,6,.75);padding:6px 14px 8px;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(255,80,60,.5)}
+.cine{position:fixed;inset:0;pointer-events:none}
+.cine i{position:absolute;left:0;right:0;height:0;background:#000;transition:height .5s ease-out}
+.cine i:first-child{top:0}.cine i:nth-child(2){bottom:0}
+.cine.on i{height:12.8vh}
+.cine b{position:absolute;left:50%;bottom:4vh;transform:translateX(-50%);font:800 30px/1 var(--f-display);letter-spacing:.24em;text-transform:uppercase;color:#f3ead9;white-space:nowrap;opacity:0;transition:opacity .4s .25s}
+.cine.on b{opacity:1}
+.hhud .bc,.hhud .bl,.hhud .br{transition:opacity .3s}
+.cine.on~.hhud .bc,.cine.on~.hhud .bl,.cine.on~.hhud .br{opacity:0}
 .lockhint{position:absolute;left:50%;top:calc(50% + 30px);transform:translateX(-50%);font:600 15px var(--f-ui);background:var(--panel);padding:8px 14px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--edge);white-space:nowrap}
 .editor{position:fixed;left:max(16px,env(safe-area-inset-left,0px));top:16px;bottom:16px;width:min(372px,calc(100vw - 32px));overflow:auto;background:rgba(22,16,40,.86);border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.4),inset 0 0 0 1px var(--edge);padding:20px 20px 18px;display:grid;gap:15px;align-content:start;box-sizing:border-box}
 .editor .head{font-size:44px}
@@ -184,12 +198,14 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 @media (prefers-reduced-motion:reduce){
   .logo span{animation:none}
   .bump,.hot{animation:none}
+  .secret,.secret.on{transform:translate(-50%,-50%);transition:opacity .3s}
 }
 </style>
 
 <canvas id="c" tabindex="0" aria-label="Herní scéna Kaskáda"></canvas>
 <div id="glow"></div>
 <div id="flash"></div>
+<div class="cine" id="cine" aria-hidden="true"><i></i><i></i><b id="cineT"></b></div>
 <div class="pops" id="pops"></div>
 
 <div class="hud" id="hud" hidden>
@@ -231,6 +247,8 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="bc"><div class="evt" id="hEvt"></div><div class="tools" id="tools"></div></div>
   <div class="bl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> chůze · myš rozhlížení · <b>levé tlačítko</b> nářadí · <kbd>1</kbd>–<kbd>6</kbd> nebo kolečko výběr · <kbd>E</kbd> odpálit nálože · <kbd>Esc</kbd> pauza</div>
   <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a><span id="hPano" hidden></span><span id="hCz" hidden> · ortofoto, RÚIAN a výškopis © <a href="https://cuzk.gov.cz" target="_blank" rel="noopener">ČÚZK</a> (CC BY 4.0)</span> · </span><span id="hEngine"></span></div>
+  <div class="secret" id="hSecret" role="status"><small>Tajemství domu</small><b id="hSecretT"></b><span id="hSecretS"></span></div>
+  <div class="bomb" id="hBomb" hidden></div>
   <div class="lockhint" id="lockHint" hidden>Klikni do hry a rozhlížej se myší</div>
 </div>
 
@@ -2728,6 +2746,8 @@ const AMB_DIRS = (() => {
 })();
 const ambU = {
   uAmb: { value: new THREE.Data3DTexture(new Uint8Array([255]), 1, 1, 1) }, uAmbO: { value: V3() }, uAmbS: { value: V3(1, 1, 1) }, uAmbK: { value: 0 },
+  // světlo tajné místnosti: disko koule (tečky z otáčející se mřížky na kouli) nebo maják; jen uvnitř krabice místnosti, vypnuté = w 0
+  uDs: { value: new THREE.Vector4() }, uDsB0: { value: V3() }, uDsB1: { value: V3() }, uDsC: { value: new THREE.Color(0, 0, 0) }, uDsT: { value: new THREE.Vector2() },
 };
 ambU.uAmb.value.format = THREE.RedFormat; ambU.uAmb.value.needsUpdate = true;
 function ambPatch(sh) {
@@ -2740,11 +2760,22 @@ function ambPatch(sh) {
       #endif
       vAw = (modelMatrix * aw).xyz; vAn = normalize(mat3(modelMatrix) * an);`);
   sh.fragmentShader = sh.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vAw;\nvarying vec3 vAn;\nuniform highp sampler3D uAmb;\nuniform vec3 uAmbO, uAmbS;\nuniform float uAmbK;')
+    .replace('#include <common>', '#include <common>\nvarying vec3 vAw;\nvarying vec3 vAn;\nuniform highp sampler3D uAmb;\nuniform vec3 uAmbO, uAmbS;\nuniform float uAmbK;\nuniform vec4 uDs;\nuniform vec3 uDsB0, uDsB1, uDsC;\nuniform vec2 uDsT;')
     .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
       float hAmb = mix(1.0, texture(uAmb, (vAw + normalize(vAn) * 0.42 - uAmbO) / uAmbS).r, uAmbK);
       vec3 hBounce = hAmb * mix(vec3(1.22, 1.0, 0.78), vec3(1.0), hAmb);   // uvnitř převládá teplé světlo odražené od zdí a podlah, ne modrá obloha
-      irradiance *= hBounce; iblIrradiance *= hBounce; radiance *= hAmb;`);
+      irradiance *= hBounce; iblIrradiance *= hBounce; radiance *= hAmb;
+      if (uDs.w > 0.0 && all(greaterThan(vAw, uDsB0)) && all(lessThan(vAw, uDsB1))) {
+        vec3 dsD = vAw - uDs.xyz; float dsL = max(length(dsD), 0.05); vec3 dsN = dsD / dsL;
+        float dsF = max(0.0, dot(normalize(vAn), -dsN)), dsCa = cos(uDsT.x), dsSa = sin(uDsT.x);
+        vec3 dsR = vec3(dsCa * dsN.x - dsSa * dsN.z, dsN.y, dsSa * dsN.x + dsCa * dsN.z), dsCol;
+        if (uDsT.y < 0.5) {
+          vec2 dsG = vec2(atan(dsR.z, dsR.x), asin(clamp(dsR.y, -1.0, 1.0))) * 10.0, dsF2 = fract(dsG) - 0.5;
+          float dsH = fract(sin(dot(floor(dsG), vec2(12.9898, 78.233))) * 43758.5453);
+          dsCol = (0.5 + 0.5 * cos(6.2832 * (dsH * 3.0 + vec3(0.0, 0.33, 0.67)))) * smoothstep(0.15, 0.06, length(dsF2)) * step(0.55, dsH) * 7.0 + uDsC;
+        } else dsCol = uDsC * (0.25 + pow(max(0.0, dsR.x), 6.0) * 4.0);
+        reflectedLight.directDiffuse += material.diffuseColor * dsCol * dsF * uDs.w / (1.0 + dsL * dsL * 0.25);
+      }`);
 }
 function withAmb(mat) {
   const prev = mat.onBeforeCompile, key = mat.customProgramCacheKey();
@@ -4054,7 +4085,7 @@ function seated(el) {
 }
 function roofSupport(ex) {
   if (!H.roof.length) return;
-  const fell = [];
+  const fell = []; let stood = 0; for (const el of H.roof) if (el.st) stood++;
   let changed = true;
   while (changed) {
     changed = false;
@@ -4068,6 +4099,11 @@ function roofSupport(ex) {
     }
   }
   fell.forEach((el, i) => dropEl(el, ex, null, i > 220));
+  // podřezaná poslední krokev: střecha jde dolů celá → filmové zpomalení
+  if (fell.length >= 30 && fell.length >= stood * 0.4) {
+    const P = V3(); for (const el of fell) P.add(el.p); P.multiplyScalar(1 / fell.length);
+    if (cine('Střecha jde dolů', P, fell.length)) { hPts(fell.length * 6, P, 'Střecha dole!', { cls: 'g', heat: 3, combo: false }); hBizarre(55 + fell.length / 10, `Po jednom ${ex ? 'výbuchu' : 'řezu'} spadla najednou celá střecha`); }
+  }
 }
 function dropEl(el, ex, vel, noBody) {
   el.st = 0; H.roofDown++; if (H.amb) H.amb.pending = true;
@@ -4105,7 +4141,7 @@ function houseClear() {
   H.charges = [];
   for (const b of H.balls || []) houseRoot.remove(b.mesh);
   H.balls = [];
-  crumbs.clear(); glassBits.clear(); clearDust(); propClear();
+  crumbs.clear(); glassBits.clear(); clearDust(); propClear(); secretClear();
 }
 function houseBuild(spec) {
   houseClear();
@@ -4113,6 +4149,7 @@ function houseBuild(spec) {
   H.oy = 0;
   const info = genHouse(spec);
   H.info = info; H.spec = spec; H.spawn = info.spawn;
+  secretPick(info);
   facUniforms(spec, info); spawnProps(info.props);
   setSun(spec.sunPhoto && houseCtx && houseCtx.sun ? houseCtx.sun : SUN0);
   ORTHO_U.roof.value = spec.roofOrtho && ORTHO_U.k.value ? 1 : 0;
@@ -5525,6 +5562,7 @@ function kitLoad(name) {
   let k = PROP.kits[name]; if (k) return k.ready;
   k = PROP.kits[name] = {};
   if (name === 'gas_pb') return (k.ready = Promise.resolve(gasKit(k)));
+  if (PROC_KITS[name]) return (k.ready = Promise.resolve(PROC_KITS[name](k)));
   PROP.loader ||= new GLTFLoader();
   const sc = KIT_SCALE[name] || 1;
   k.ready = PROP.loader.loadAsync(`models/${name}.glb`).then(g => {
@@ -5642,7 +5680,8 @@ function partHit(pt, dmg, imp) {
   removePart(pt); matFx(pt.mat, pt.kp.ms[0].mat, c, pt.size, 1);
   if (pm.brk === 'explode' && !pt.prop.boomed) {   // sud s výstražným znakem: bouchne jednou celý, ostatní výbušné díly shoří v tom samém výbuchu
     pt.prop.boomed = true; const trig = !!PROP.blast;
-    H.timers.push({ t: 0.15, fn: () => { for (const q of PROP.parts.slice()) if (q.prop === pt.prop && q.mat === 'explosive') removePart(q); explodeAt(c, { src: 'sud', trig }); } });
+    const tnt = pt.prop.kit === 'tnt' || pt.prop.kit === 'bomb';
+    H.timers.push({ t: 0.15, fn: () => { for (const q of PROP.parts.slice()) if (q.prop === pt.prop && q.mat === 'explosive') removePart(q); explodeAt(c, { src: tnt ? 'tnt' : 'sud', s: tnt ? 1.15 : 1, trig }); } });
   }
 }
 // úlomky: řez kolmo na nejdelší osu (35–65 %), každá půlka = stejná síť ořezaná rovinou + vlastní kvádr
@@ -5919,6 +5958,7 @@ function houseRay(o, d, max) {
     const hit = debrisRay.intersectObjects(H.debris.map(x => x.mesh), false)[0];
     if (hit) best = { kind: 'debris', t: hit.distance, p: hit.point.clone(), n: hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : d.clone().negate(), deb: H.debris.find(x => x.mesh === hit.object) };
   }
+  const ch = critRay(o, d, best ? best.t : max); if (ch) best = ch;
   const ph = propRay(o, d, best ? best.t : max); if (ph) best = ph;
   const t = terrRay(o, d, best ? best.t : max); if (t !== null && better(t)) best = { kind: 'ground', t, p: V3().copy(o).addScaledVector(d, t), n: V3(0, 1, 0) };
   return best;
@@ -5955,7 +5995,9 @@ function useTool() {
       if (res.hardest > T.pow && clock - H.lastMsg > 2) { H.lastMsg = clock; hEvt(res.hardest >= 4 ? 'Ocel povolí jen sbíječce nebo náloži' : 'Na beton vezmi perlík, sbíječku nebo nálož'); }
     } else { Snd.hit(VM[res.mat]?.h ?? 2, T.key); trauma = Math.min(1, trauma + (T.key === 'sledge' ? 0.12 : T.key === 'drill' ? 0.03 : 0.05)); }
     for (const dd of H.debris) { const p = phys.pos(dd.body); if (Math.hypot(p.x - P.x, p.y - P.y, p.z - P.z) < rr + 0.6) phys.impulse(dd.body, { x: _d.x * kk * 0.5, y: _d.y * kk * 0.5, z: _d.z * kk * 0.5 }); }
-  } else if (hit.kind === 'pane') breakPane(hit.pane);
+    if (res.n) critNoise(P, 3.5);
+  } else if (hit.kind === 'crit') { critHit(hit.crit, _d, { pow: T.pow, kick: kk || T.kick }); Snd.thud(0.25); }
+  else if (hit.kind === 'pane') breakPane(hit.pane);
   else if (hit.kind === 'roof') {
     const el = hit.el;
     if ((el.kind === 'rafter' || el.kind === 'tie') && T.pow < 3) { Snd.hit(1, T.key); if (clock - H.lastMsg > 2) { H.lastMsg = clock; hEvt('Krokev přerazí perlík, sbíječka nebo nálož'); } return; }
@@ -5984,6 +6026,7 @@ function sawCut(T, hit) {
     const el = hit.el; dropEl(el, null, { x: _d.x * 0.6, y: 0.4, z: _d.z * 0.6 }); roofSupport(); Snd.saw(1);
     for (let k = 0; k < 6; k++) splinters.spawn(hit.p.x, hit.p.y, hit.p.z, rnd(-1, 1), rnd(0.5, 2), rnd(-1, 1), rnd(0.015, 0.04), _c.set(0xb08a5e), rnd(1.5, 3));
   } else if (hit.kind === 'pane') breakPane(hit.pane);
+  else if (hit.kind === 'crit') critHit(hit.crit, _d, { pow: 1, kick: 1 });
   else if (hit.kind === 'prop' && hit.own) { propHit(hit.own, hit.p, 0.45, { x: _d.x * 0.5, y: 0.3, z: _d.z * 0.5 }); Snd.saw(1); }
 }
 // nabíjený perlík: tlačítko drží → nádech (až 1,2 s), puštění → rána
@@ -5999,7 +6042,7 @@ function toolRelease() {
 const chargeGeo = new THREE.BoxGeometry(0.22, 0.13, 0.07), chargeMat = new THREE.MeshStandardMaterial({ color: 0xc8261c, roughness: 0.6 });
 const ledMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.4, 0.2) });
 function hPlaceCharge(hit) {
-  if (!hit || hit.kind === 'pane' || hit.kind === 'debris') { hEvt('Nálož přilep na zeď, strop, podlahu nebo krokev'); return; }
+  if (!hit || hit.kind === 'pane' || hit.kind === 'debris' || hit.kind === 'crit') { hEvt('Nálož přilep na zeď, strop, podlahu nebo krokev'); return; }
   if (H.charges.length >= 12) { hEvt('Víc než 12 náloží naráz neuneseš. E je odpálí.'); return; }
   const g = new THREE.Group(), box = new THREE.Mesh(chargeGeo, chargeMat), led = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), ledMat);
   led.position.set(0.07, 0.035, 0.04); g.add(box, led); box.castShadow = true;
@@ -6034,7 +6077,7 @@ function explodeAt(P, o = {}) {
   roofSupport(ex);
   const R = 7 * s, push = (body, p, k) => { _v.set(p.x - P.x, p.y - P.y, p.z - P.z); const d = Math.max(0.4, _v.length()); if (d > R) return; _v.multiplyScalar(1 / d); const f = k * s * (1 - d / R); phys.impulse(body, { x: _v.x * f, y: (_v.y + 0.4) * f, z: _v.z * f }); };
   for (const d of H.debris) push(d.body, phys.pos(d.body), 4 + d.n * 0.004);
-  propBlast(P, 7, 9 * s, 3.5 * s);
+  propBlast(P, 7, 9 * s, 3.5 * s); critBlast(P, 7 * s, s); secretBoom(P);
   for (const el of H.roof) if (el.body) push(el.body, phys.pos(el.body), 0.6);
   for (const b of H.balls) if (b.body) push(b.body, phys.pos(b.body), 2);
   // položené nálože v dosahu tlakové vlny bouchnou s malým zpožděním (řetěz je pak vidět a slyšet po jedné)
@@ -6130,7 +6173,7 @@ function updateBalls(dt) {
         Snd.thud(Math.min(1, sp / 30)); trauma = Math.min(1, trauma + 0.1);
         if (!res.n) b.v.multiplyScalar(-0.25); else b.v.multiplyScalar(Math.max(0, 1 - res.n / 420));
       }
-      propBall(b);
+      propBall(b); critBall(b);
       for (const pn of H.panes) if (pn.alive && Math.abs(b.p.x - pn.c.x) < pn.s.x / 2 + 0.28 && Math.abs(b.p.y - pn.c.y) < pn.s.y / 2 + 0.28 && Math.abs(b.p.z - pn.c.z) < pn.s.z / 2 + 0.28) breakPane(pn);
       for (const el of H.roof) if (el.st === 1 && el.p.distanceTo(b.p) < Math.max(el.s.x, el.s.z) * 0.5 + 0.25) { _v.copy(el.p).sub(b.p); _q2.copy(el.q).invert(); _v.applyQuaternion(_q2); if (Math.abs(_v.y) < el.s.y / 2 + 0.3) { dropEl(el, null, { x: b.v.x * 0.4, y: b.v.y * 0.4, z: b.v.z * 0.4 }); b.v.multiplyScalar(0.85); roofSupport(); } }
       if (b.p.y < gH(b.p.x, b.p.z) + 0.28 || b.v.length() < 5 || b.life > 4) {
@@ -6148,6 +6191,542 @@ function terrRescue(b, p) {
   const h = gH(p.x, p.z); if (p.y > h - 0.2) return false;
   phys.setPos(b, { x: p.x, y: h + 0.3, z: p.z }); const v = phys.vel(b); phys.setVel(b, { x: v.x * 0.5, y: Math.abs(v.y) * 0.15, z: v.z * 0.5 });
   return true;
+}
+// ---------- tajemství domu: za zavřenými dveřmi jedné místnosti v přízemí čeká náhodné překvapení; postavičky ječí a utíkají ----------
+// teaser zvukem přes zdi otevře smyčku, odhalení ji zavře (tvorba/05 open loop); obsah se losuje při každé stavbě domu
+const SECRETS = {
+  disco: { name: 'Mimozemská diskotéka', sub: 'Rozbij disko kouli, nebo s nimi tancuj', teaser: 'Z domu duní hudba…', found: 'Za zavřenými dveřmi se skrývala mimozemská diskotéka', crit: 'alien', n: [5, 6] },
+  pyro: { name: 'Tajný sklad pyrotechniky', sub: 'Časovaná bomba! Uteč, nebo to odpal sám', teaser: 'Někde v domě něco tiká…', found: 'Za zavřenými dveřmi se skrýval sklad pyrotechniky', crit: 'gnome', n: [3, 4] },
+  kurnik: { name: 'Slepičárna v obýváku', sub: 'Pozor na kohouta', teaser: 'Z domu se ozývá kdákání…', found: 'Za zavřenými dveřmi se skrývala slepičárna', crit: 'chicken', n: [7, 8] },
+};
+const SEC = { kind: null, force: null, box: null, revealed: false, spawns: [], crit: [], bus: null, seq: null, tiles: null, bomb: null, losT: 0, tick: 0, ball: null, ended: false };
+const CRIT_T = {
+  alien: { h: 0.8, r: 0.2, run: 3.0, fear: 3.2, stare: true, name: 'Mimozemšťan' },
+  gnome: { h: 0.56, r: 0.16, run: 2.1, fear: 2.8, stare: true, name: 'Trpaslík' },
+  chicken: { h: 0.42, r: 0.15, run: 3.4, fear: 2.4, stare: false, name: 'Slepice' },
+  rooster: { h: 0.52, r: 0.18, run: 3.0, fear: 0, stare: false, name: 'Kohout' },
+};
+// zvuk: vlastní sběrnice (dolní propust = hudba za zdí), noty se plánují dopředu na čas AudioContextu
+function secOsc(type, f0, f1, t, dur, peak, dest, o = {}) {
+  const c = Snd.ctx, os = c.createOscillator(); os.type = type;
+  os.frequency.setValueAtTime(f0, t); if (f1 !== f0) os.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  if (o.vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = o.vib; lg.gain.value = o.vibD; l.connect(lg); lg.connect(os.frequency); l.start(t); l.stop(t + dur + 0.05); }
+  const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + (o.a ?? 0.005)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  let node = os;
+  if (o.bp || o.lp) { const f = c.createBiquadFilter(); f.type = o.bp ? 'bandpass' : 'lowpass'; f.frequency.value = o.bp || o.lp; f.Q.value = o.q ?? 1.5; os.connect(f); node = f; }
+  node.connect(g); g.connect(dest); os.start(t); os.stop(t + dur + 0.05);
+}
+function secNoise(type, f, t, dur, peak, dest, q = 0.8) {
+  const c = Snd.ctx, s = c.createBufferSource(); s.buffer = Snd.buf;
+  const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+  const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(dest); s.start(t, Math.random() * 1.2); s.stop(t + dur + 0.05);
+}
+Object.assign(Snd, {
+  scream(type, k = 1) {   // k = hlasitost podle vzdálenosti
+    if (!this.ok('scream', 110)) return;
+    const t = this.ctx.currentTime, o = this.out, p = 0.2 * k;
+    if (type === 'alien') { const f = 650 + Math.random() * 250; secOsc('sine', f, f * 2.1, t, 0.75, p, o, { vib: 13, vibD: 110, a: 0.03 }); secOsc('triangle', f * 1.01, f * 2.0, t, 0.7, p * 0.4, o, { vib: 11, vibD: 90, a: 0.03 }); }
+    else if (type === 'gnome') { const f = 950 + Math.random() * 300; secOsc('sawtooth', f, f * 1.45, t, 0.42, p, o, { vib: 9, vibD: 50, bp: 1700, q: 3, a: 0.02 }); }
+    else if (type === 'chicken') { const f = 480 + Math.random() * 90; for (let i = 0; i < 3; i++) secOsc('square', f, f * 0.92, t + i * 0.11, 0.07, p * 0.7, o, { bp: 1100, q: 4 }); secOsc('square', f * 1.5, f * 1.05, t + 0.36, 0.32, p, o, { bp: 1200, q: 4, vib: 18, vibD: 25 }); }
+    else if (type === 'rooster') { const f = 480; [[f, f * 1.3, 0.12], [f * 1.2, f * 1.4, 0.12], [f * 1.35, f * 1.7, 0.15], [f * 1.7, f * 1.2, 0.45]].reduce((tt, [a, b, d]) => { secOsc('sawtooth', a, b, tt, d, p, o, { bp: 1250, q: 3, vib: 7, vibD: 20 }); return tt + d * 0.95; }, t); }
+  },
+  teleport(k = 1) { if (!this.ok('tele', 60)) return; const t = this.ctx.currentTime; secOsc('sine', 300, 2600, t, 0.32, 0.22 * k, this.out, { vib: 30, vibD: 200 }); secNoise('highpass', 6000, t, 0.25, 0.08 * k, this.out); },
+  scratch() { if (!this.ok('scratch', 300)) return; const t = this.ctx.currentTime; secOsc('sawtooth', 900, 180, t, 0.45, 0.25, this.out, { bp: 1400, q: 2 }); secNoise('bandpass', 2200, t, 0.4, 0.3, this.out, 2); },
+  rumble() { if (!this.ctx || this.muted) return; const t = this.ctx.currentTime; secNoise('lowpass', 140, t, 4.2, 0.9, this.out, 0.9); secOsc('sine', 48, 30, t, 3.6, 0.55, this.out, { a: 0.4 }); this.creak(); },
+  beep(hi) { if (!this.ok('beep', 60)) return; secOsc('square', hi ? 2100 : 1700, hi ? 2100 : 1700, this.ctx.currentTime, 0.06, 0.07, this.out); },
+  peck() { if (!this.ok('peck', 80)) return; secNoise('bandpass', 2600, this.ctx.currentTime, 0.05, 0.4, this.out, 3); },
+  sting(kind) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, o = this.out;
+    if (kind === 'disco') { secOsc('sine', 260, 1300, t, 0.9, 0.2, o, { vib: 9, vibD: 70, a: 0.08 }); [0, 3, 7, 10, 15].forEach((s, i) => { const f = 440 * 2 ** (s / 12); secOsc('square', f, f, t + 0.25 + i * 0.07, 0.3, 0.06, o, { lp: 2500 }); }); }
+    else if (kind === 'pyro') for (let i = 0; i < 6; i++) { const f = i % 2 ? 770 : 960; secOsc('sawtooth', f, f, t + i * 0.36, 0.34, 0.09, o, { lp: 2200, a: 0.03 }); }
+    else this.scream('rooster', 1.4);
+  },
+});
+function secBus() {
+  if (SEC.bus || !Snd.ctx) return SEC.bus;
+  const c = Snd.ctx, inp = c.createGain(), lp = c.createBiquadFilter(), out = c.createGain();
+  lp.type = 'lowpass'; lp.frequency.value = 400; lp.Q.value = 0.7; out.gain.value = 0;
+  inp.connect(lp); lp.connect(out); out.connect(Snd.out);
+  return (SEC.bus = { inp, lp, out });
+}
+// disko: vlastní smyčka 124 BPM — kopák na doby, hi-hat do mezidob, oktávový bas, mimozemské „theremin" arpeggio
+const DISCO = { bpm: 124, roots: [55, 43.65, 65.41, 49], scale: [440, 523.25, 587.33, 659.26, 783.99], arp: [0, -1, 2, -1, 1, -1, 3, -1, 4, -1, 2, -1, 1, 3, -1, 0] };
+function discoStep(i, t, dest) {
+  const s = i % 16, bar = (i >> 4) % 4, root = DISCO.roots[bar];
+  if (s % 4 === 0) { secOsc('sine', 150, 42, t, 0.24, 0.9, dest); secNoise('lowpass', 1200, t, 0.03, 0.25, dest); }
+  if (s % 4 === 2) secNoise('highpass', 7500, t, 0.06, 0.22, dest);
+  else if (s % 2 === 1) secNoise('highpass', 9000, t, 0.025, 0.06, dest);
+  if (s === 4 || s === 12) secNoise('bandpass', 1500, t, 0.14, 0.32, dest, 1.2);
+  if (s % 2 === 0) { const f = root * (s % 4 === 2 ? 2 : 1); secOsc('sawtooth', f, f, t, 0.11, 0.22, dest, { lp: 650 }); }
+  const n = DISCO.arp[s]; if (n >= 0 && (bar & 1)) { const f = DISCO.scale[n]; secOsc('sine', f, f, t, 0.2, 0.06, dest, { vib: 6, vibD: 9, a: 0.02 }); }
+}
+// procedurální kusy: TNT bedna, časovaná bomba, disko koule, reprobedna, balík slámy (jeden díl, materiál určuje rozpad)
+function procKit(k, list, mat) {
+  const mk = o => { const m = withAmb(new THREE.MeshStandardMaterial(o)); m.userData.amb = true; return m; };
+  const items = list.map(([geo, o]) => ({ geo, mat: o.isMaterial ? o : mk(o) }));
+  for (const q of items) { q.geo.computeBoundingBox(); q.geo.computeBoundingSphere(); }
+  const bb = new THREE.Box3(); for (const q of items) bb.union(q.geo.boundingBox);
+  const c = bb.getCenter(V3());
+  k.whole = items;
+  const ms = items.map(({ geo, mat: m }) => { const g2 = geo.clone().translate(-c.x, -c.y, -c.z); g2.computeBoundingBox(); g2.computeBoundingSphere(); return { geo: g2, mat: m }; });
+  k.parts = [{ mat, c, size: bb.getSize(V3()), mid: V3(), ms }];
+  return k;
+}
+const crateTntTex = () => canvasTex(256, 192, (g, w, h) => {
+  g.fillStyle = '#9b6a3c'; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 48) { g.fillStyle = y % 96 ? '#8c5f35' : '#a5744a'; g.fillRect(0, y, w, 46); g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, y + 46, w, 2); }
+  g.fillStyle = '#c4161c'; g.font = '900 92px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('TNT', w / 2, h * 0.44);
+  g.font = '800 22px system-ui, sans-serif'; g.fillText('VÝBUŠNINA', w / 2, h * 0.8);
+});
+const PROC_KITS = {
+  tnt: k => procKit(k, [[new THREE.BoxGeometry(0.5, 0.36, 0.36).translate(0, 0.18, 0), { map: crateTntTex(), roughness: 0.8 }]], 'explosive'),
+  bomb: k => {
+    SEC.screen = canvasTex(128, 48, () => {}); bombScreen(30);
+    const red = { color: 0xb3221a, roughness: 0.55 };
+    return procKit(k, [[new THREE.BoxGeometry(0.5, 0.36, 0.36).translate(0, 0.18, 0), { map: crateTntTex(), roughness: 0.8 }],
+      ...[-0.07, 0, 0.07].map(x => [new THREE.CylinderGeometry(0.032, 0.032, 0.3, 12).rotateZ(Math.PI / 2).translate(0, 0.395, x), red]),
+      [new THREE.BoxGeometry(0.16, 0.07, 0.1).translate(0, 0.46, 0), { color: 0x1d1d20, roughness: 0.4 }],
+      [new THREE.PlaneGeometry(0.13, 0.045).translate(0, 0.46, 0.0505), { map: SEC.screen, emissive: 0xffffff, emissiveMap: SEC.screen, emissiveIntensity: 2.2, roughness: 0.3 }]], 'explosive');
+  },
+  disco_ball: k => {
+    const g = new THREE.IcosahedronGeometry(0.2, 2).translate(0, 0.2, 0);
+    return procKit(k, [[g, { color: 0xe4e8ef, metalness: 1, roughness: 0.12, flatShading: true, emissive: 0x7a808c, envMapIntensity: 2 }], [new THREE.CylinderGeometry(0.005, 0.005, 0.55, 5).translate(0, 0.68, 0), { color: 0x222222 }]], 'glass');
+  },
+  speaker: k => {
+    const cone = { color: 0x3a3a3e, roughness: 0.5, metalness: 0.3 };
+    return procKit(k, [[new THREE.BoxGeometry(0.42, 0.85, 0.38).translate(0, 0.425, 0), { color: 0x141416, roughness: 0.75 }],
+      [new THREE.CylinderGeometry(0.15, 0.1, 0.03, 24).rotateX(Math.PI / 2).translate(0, 0.27, 0.19), cone], [new THREE.CylinderGeometry(0.07, 0.045, 0.03, 18).rotateX(Math.PI / 2).translate(0, 0.62, 0.19), cone]], 'plastic');
+  },
+  hay: k => procKit(k, [[new THREE.BoxGeometry(0.9, 0.42, 0.45).translate(0, 0.21, 0), { map: canvasTex(128, 64, (g, w, h) => { g.fillStyle = '#d2b25e'; g.fillRect(0, 0, w, h); for (let i = 0; i < 260; i++) { g.strokeStyle = Math.random() < 0.5 ? '#b8963f' : '#e8cf86'; g.lineWidth = 1; const x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(6, 16), y + rnd(-2, 2)); g.stroke(); } g.fillStyle = '#6d4a24'; g.fillRect(w * 0.27, 0, 3, h); g.fillRect(w * 0.7, 0, 3, h); }), roughness: 0.95 }]], 'leaves'),
+};
+Object.assign(KITS, { tnt: [0.5, 0.36, 0.36], bomb: [0.5, 0.5, 0.36], disco_ball: [0.4, 0.95, 0.4], speaker: [0.42, 0.85, 0.38], hay: [0.9, 0.42, 0.45] });
+Object.assign(KIT_NAMES, { tnt: ['Bedna TNT', 'f'], bomb: ['Časovaná bomba', 'f'], disco_ball: ['Disko koule', 'f'], speaker: ['Reprobedna', 'f'], hay: ['Balík slámy', 'm'] });
+function bombScreen(s) {
+  if (!SEC.screen) return;
+  const cv = SEC.screen.image, g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  g.fillStyle = '#120404'; g.fillRect(0, 0, w, h); g.fillStyle = s <= 5 && s % 1 < 0.5 ? '#ff7a6a' : '#ff2a1a'; g.font = '700 38px ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(`0:${String(Math.max(0, Math.ceil(s))).padStart(2, '0')}`, w / 2, h / 2 + 2); SEC.screen.needsUpdate = true;
+}
+// postavičky: jednoduché tvary s přehnaným rysem (velká hlava a oči, čepice, hřebínek), čitelné v siluetě (3d/22)
+let CRIT_G = null;
+function critGeo() {
+  return (CRIT_G ||= { sph: new THREE.SphereGeometry(1, 16, 12), cyl: new THREE.CylinderGeometry(1, 1, 1, 12), cone: new THREE.ConeGeometry(1, 1, 14), cap: new THREE.CapsuleGeometry(1, 1, 4, 10), box: new THREE.BoxGeometry(1, 1, 1) });
+}
+const critMats = {};
+function cmat(hex, o = {}) { const k = hex + JSON.stringify(o); return (critMats[k] ||= withAmb(new THREE.MeshStandardMaterial({ color: hex, roughness: 0.6, ...o }))); }
+function critMesh(type) {
+  const G2 = critGeo(), inner = new THREE.Group(), parts = {};
+  const add = (geo, mat, x, y, z, sx, sy, sz, par = inner, rx = 0, rz = 0, shadow = false) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, 0, rz); m.castShadow = shadow; par.add(m); return m; };
+  const piv = (x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); inner.add(g); return g; };
+  if (type === 'alien') {
+    const skin = cmat(0x79d36a, { roughness: 0.45 }), dark = cmat(0x4e9a46), eye = cmat(0x0b0b10, { roughness: 0.08, metalness: 0.2 }), glow = cmat(0x9dff7a, { emissive: 0x7dff5a, emissiveIntensity: 2.4 });
+    for (const s of [-1, 1]) { const l = piv(s * 0.06, 0.2, 0); add(G2.cap, dark, 0, -0.1, 0, 0.035, 0.07, 0.035, l); parts[s < 0 ? 'legR' : 'legL'] = l; }
+    add(G2.cap, skin, 0, 0.34, 0, 0.11, 0.08, 0.095, inner, 0, 0, true);
+    parts.head = piv(0, 0.5, 0);
+    add(G2.sph, skin, 0, 0.13, 0, 0.17, 0.19, 0.16, parts.head, 0, 0, true);
+    for (const s of [-1, 1]) {
+      add(G2.sph, eye, s * 0.072, 0.135, 0.12, 0.075, 0.042, 0.03, parts.head, 0, s * 0.45);
+      const a = new THREE.Group(); a.position.set(s * 0.06, 0.28, 0); a.rotation.z = -s * 0.35; parts.head.add(a); add(G2.cyl, dark, 0, 0.06, 0, 0.008, 0.12, 0.008, a); add(G2.sph, glow, 0, 0.13, 0, 0.026, 0.026, 0.026, a);
+      const arm = piv(s * 0.125, 0.42, 0); add(G2.cap, skin, 0, -0.1, 0, 0.028, 0.08, 0.028, arm); add(G2.sph, dark, 0, -0.2, 0, 0.036, 0.036, 0.036, arm); parts[s < 0 ? 'armR' : 'armL'] = arm;
+    }
+  } else if (type === 'gnome') {
+    const blue = cmat(0x3d64c6, { roughness: 0.28 }), red = cmat(0xd2281f, { roughness: 0.25 }), white = cmat(0xf4f1ea, { roughness: 0.3 }), skin = cmat(0xf0c39c, { roughness: 0.3 }), boot = cmat(0x3b2a1e, { roughness: 0.35 }), eye = cmat(0x111111, { roughness: 0.1 });
+    for (const s of [-1, 1]) { const l = piv(s * 0.05, 0.08, 0); add(G2.box, boot, 0, -0.055, 0.015, 0.06, 0.05, 0.1, l); parts[s < 0 ? 'legR' : 'legL'] = l; }
+    add(G2.cyl, blue, 0, 0.18, 0, 0.1, 0.2, 0.1, inner, 0, 0, true);
+    parts.head = piv(0, 0.3, 0);
+    add(G2.cone, white, 0, -0.06, 0.05, 0.085, 0.16, 0.06, parts.head, Math.PI);
+    add(G2.sph, skin, 0, 0.03, 0, 0.085, 0.085, 0.085, parts.head, 0, 0, true);
+    add(G2.sph, cmat(0xe58f80, { roughness: 0.3 }), 0, 0.02, 0.085, 0.03, 0.026, 0.028, parts.head);
+    for (const s of [-1, 1]) add(G2.sph, eye, s * 0.03, 0.05, 0.075, 0.012, 0.012, 0.01, parts.head);
+    add(G2.cone, red, 0, 0.19, -0.015, 0.095, 0.27, 0.095, parts.head, -0.18, 0, true);
+    for (const s of [-1, 1]) { const arm = piv(s * 0.105, 0.24, 0); add(G2.cap, blue, 0, -0.06, 0, 0.025, 0.05, 0.025, arm); add(G2.sph, skin, 0, -0.12, 0, 0.028, 0.028, 0.028, arm); parts[s < 0 ? 'armR' : 'armL'] = arm; }
+  } else {   // slepice / kohout
+    const rooster = type === 'rooster', body = cmat(rooster ? 0xa4441c : 0xf3efe6, { roughness: 0.8 }), tail = cmat(rooster ? 0x1f4d3a : 0xe8e3d8, { roughness: 0.7 }), comb = cmat(0xd61f1f, { roughness: 0.5 }), beak = cmat(0xe8a524, { roughness: 0.5 }), eye = cmat(0x111111, { roughness: 0.1 });
+    for (const s of [-1, 1]) { const l = piv(s * 0.04, 0.12, 0); add(G2.cyl, beak, 0, -0.06, 0, 0.009, 0.12, 0.009, l); add(G2.box, beak, 0, -0.118, 0.02, 0.035, 0.008, 0.05, l); parts[s < 0 ? 'legR' : 'legL'] = l; }
+    add(G2.sph, body, 0, 0.22, -0.01, 0.12, 0.11, 0.16, inner, 0, 0, true);
+    add(G2.cone, tail, 0, 0.3, -0.15, rooster ? 0.08 : 0.06, rooster ? 0.24 : 0.13, rooster ? 0.05 : 0.04, inner, -0.85);
+    for (const s of [-1, 1]) { const w = piv(s * 0.105, 0.25, 0); add(G2.sph, tail, 0, -0.03, -0.01, 0.025, 0.07, 0.11, w); parts[s < 0 ? 'wingR' : 'wingL'] = w; }
+    parts.head = piv(0, 0.3, 0.08);
+    add(G2.sph, body, 0, 0.06, 0.03, 0.065, 0.07, 0.065, parts.head, 0, 0, true);
+    add(G2.cone, beak, 0, 0.055, 0.105, 0.02, 0.05, 0.02, parts.head, Math.PI / 2);
+    for (let i = 0; i < 3; i++) add(G2.sph, comb, 0, 0.125 + (i === 1 ? 0.01 : 0), 0.0 + i * 0.025, 0.012, rooster ? 0.032 : 0.02, 0.016, parts.head);
+    add(G2.sph, comb, 0, 0.022, 0.085, 0.014, rooster ? 0.03 : 0.018, 0.012, parts.head);
+    for (const s of [-1, 1]) add(G2.sph, eye, s * 0.045, 0.075, 0.065, 0.01, 0.01, 0.01, parts.head);
+  }
+  return { inner, parts };
+}
+function critSpawn(type, x, y, z, yaw) {
+  const T = CRIT_T[type], { inner, parts } = critMesh(type), outer = new THREE.Group(), sc = type === 'rooster' ? 1.25 : 1, hc = T.h * 0.45;
+  inner.position.y = -hc / sc; outer.add(inner); outer.scale.setScalar(sc); houseRoot.add(outer);
+  const c = { type, T, outer, inner, parts, p: V3(x, y, z), yaw, ang: yaw, hc, state: 'idle', t: 0, fear: 0, scr: 0, hitT: 0, ph: rnd(0, 6.28), body: null, slow: 0, wT: rnd(0.5, 2), walk: 0, peck: 0 };
+  SEC.crit.push(c); critPose(c); return c;
+}
+function critPose(c) {
+  c.outer.position.set(c.p.x, c.p.y + c.hc, c.p.z);
+  c.outer.quaternion.setFromAxisAngle(_up, c.yaw);
+  if (c.state === 'daze') { c.outer.position.y = c.p.y + c.T.r * 0.85; c.outer.quaternion.multiply(_q2.setFromAxisAngle(_zAx, Math.PI / 2)); }
+}
+const _zAx = V3(0, 0, 1);
+function critRemove(c) { if (c.body) { phys.remove(c.body); c.body = null; } houseRoot.remove(c.outer); c.state = 'gone'; }
+// podlaha pod nohama: první plná kostka shora (krok do 12 cm se vyleze), mimo dům terén; nic do 1,2 m = padá
+function critGround(x, y, z) {
+  const g = gH(x, z);
+  for (let yy = y + 0.12; yy > y - 1.2; yy -= VS) { if (yy <= g) return g; if (solidW(x, yy, z)) return (Math.floor(yy / VS) + 1) * VS; }
+  return -Infinity;
+}
+const critBlocked = (c, x, z) => solidW(x, c.p.y + 0.16, z) || solidW(x, c.p.y + c.T.h * 0.8, z);
+// volno i do stran (poloměr těla): bez toho by klouzaly podél zdi do radiátoru a vylezly po něm
+const critFree = (c, x, z, r = c.T.r * 0.75) => !critBlocked(c, x, z) && !critBlocked(c, x + r, z) && !critBlocked(c, x - r, z) && !critBlocked(c, x, z + r) && !critBlocked(c, x, z - r);
+function critScare(c, dur) {
+  if (c.state === 'gone' || c.type === 'rooster') return;
+  c.fear = Math.max(c.fear, dur);
+  if (c.state === 'idle') { c.state = c.T.stare ? 'stare' : 'flee'; c.t = c.T.stare ? -rnd(0.35, 0.7) : 0; if (!c.T.stare) critYell(c); }
+}
+function critYell(c) { if (c.scr > 0) return; c.scr = rnd(1.3, 2.4); const d = Math.hypot(PL.p.x - c.p.x, PL.p.y - c.p.y, PL.p.z - c.p.z); Snd.scream(c.type, clamp(3 / (1 + d), 0.12, 1)); }
+function critFling(c, v) {
+  if (c.state === 'gone') return;
+  if (!c.body) {
+    const P = c.outer.position;
+    const k = c.outer.scale.x;   // kvádr, ne koule: koule by se po podlaze kutálela donekonečna
+    c.body = phys.add({ t: 'box', x: c.T.r * 2 * k, y: c.T.h * 0.8 * k, z: c.T.r * 2 * k }, { x: P.x, y: Math.max(P.y, c.p.y + c.T.h * 0.42 * k), z: P.z }, c.outer.quaternion, { density: 260, friction: 0.7, linDamp: 0.08, angDamp: 0.6, restitution: 0.25 });
+    c.fly = { y0: c.p.y, top: 0, p0: c.p.clone() };
+  }
+  phys.setVel(c.body, v); phys.setAngVel(c.body, { x: rnd(-8, 8), y: rnd(-4, 4), z: rnd(-8, 8) });
+  c.state = 'fly'; c.t = 0; c.slow = 0; c.fear = Math.max(c.fear, 4);
+  critYell(c);
+}
+// zásah: mimozemšťana silný výbuch odteleportuje, keramického trpaslíka tvrdá rána roztříští, slepice jen odletí (a peří lítá)
+function critHit(c, dir, o = {}) {
+  if (!c || c.state === 'gone' || clock - c.hitT < 0.35) return;
+  c.hitT = clock; secReveal('hit');
+  const C = c.outer.position.clone(), hard = o.blast > 0.55 || o.pow >= 3 || o.ball;
+  if (c.type === 'alien' && o.blast > 0.45) return critTeleport(c);
+  if (c.type === 'gnome' && hard) return critShatter(c, dir);
+  if (c.type === 'chicken' || c.type === 'rooster') for (let i = 0; i < 22; i++) { const d = rndDir(); feathers.spawn(C.x + d.x * 0.1, C.y + d.y * 0.1, C.z + d.z * 0.1, d.x * 2.5, d.y * 2.5 + 1.5, d.z * 2.5, 0.06, c.type === 'rooster' ? _c.setHex(0xb8582a) : FEATHER, 12); }
+  const k = o.blast ? 5 + 9 * o.blast : o.ball ? 9 : 3.5 + (o.kick || 1) * 1.6;
+  critFling(c, { x: dir.x * k, y: Math.max(dir.y * k, 0) + 2.5 + k * 0.25, z: dir.z * k });
+  hPts(c.type === 'gnome' ? 120 : 150, C, `${c.T.name} letí`, { cls: 'c', heat: 1 });
+}
+function critTeleport(c) {
+  const C = c.outer.position.clone();
+  for (let i = 0; i < 16; i++) { const d = rndDir(); flames.spawn({ p: C.clone().addScaledVector(d, 0.1), v: d.multiplyScalar(rnd(1, 3)), life: rnd(0.25, 0.5), size: rnd(0.15, 0.3), grav: -0.4, drag: 3, curve: curve.pop, paint: (t, cc) => cc.setRGB(0.5 * (1 - t), 3.6 * (1 - t), 0.8 * (1 - t)) }); }
+  for (let i = 0; i < 20; i++) sparks.spawn({ p: C.clone(), v: V3(rnd(-1, 1), rnd(2, 6), rnd(-1, 1)), life: rnd(0.4, 0.8), size: rnd(0.015, 0.03), grav: -0.2, drag: 1.5, curve: curve.shrink });
+  Snd.teleport(clamp(3 / (1 + C.distanceTo(PL.p)), 0.2, 1)); critRemove(c);
+  hPts(300, C, 'Teleport!', { cls: 'm', heat: 1.5 });
+  if (SEC.crit.every(x => x.type !== 'alien' || x.state === 'gone')) { hBizarre(50, 'Všichni mimozemšťané se zděšeně odteleportovali'); hEvt('Mimozemšťané utekli domů'); }
+}
+function critShatter(c, dir) {
+  const C = c.outer.position.clone(), cols = [0xd2281f, 0x3d64c6, 0xf4f1ea, 0xf0c39c];
+  for (let i = 0; i < 26; i++) { const d = rndDir(); potShards.spawn(C.x + d.x * 0.1, C.y + d.y * 0.15, C.z + d.z * 0.1, d.x * 3 + dir.x * 2, Math.abs(d.y) * 3 + 1, d.z * 3 + dir.z * 2, rnd(0.03, 0.06), _c.setHex(cols[i % 4]), 7); }
+  Snd.glass(); Snd.scream('gnome', 0.6); critRemove(c);
+  hPts(250, C, 'Trpaslík na střepy', { cls: 'm', heat: 1.5 }); hBizarre(25, 'Zahradní trpaslík se roztříštil na střepy');
+}
+function critRay(o, d, far) {
+  let best = null;
+  for (const c of SEC.crit) {
+    if (c.state === 'gone') continue;
+    const P = c.outer.position, r = c.T.r * 1.35 * (c.type === 'rooster' ? 1.25 : 1), ox = o.x - P.x, oy = o.y - P.y, oz = o.z - P.z;
+    const b = ox * d.x + oy * d.y + oz * d.z, cc = ox * ox + oy * oy + oz * oz - r * r, D = b * b - cc; if (D < 0) continue;
+    const t = -b - Math.sqrt(D); if (t < 0 || t > (best ? best.t : far)) continue;
+    const p = V3().copy(o).addScaledVector(d, t);
+    best = { kind: 'crit', t, p, n: V3().subVectors(p, P).normalize(), crit: c };
+  }
+  return best;
+}
+function critBlast(P, R, s) {
+  for (const c of SEC.crit) {
+    if (c.state === 'gone') continue;
+    const C = c.outer.position, d = C.distanceTo(P);
+    if (d < 13) critScare(c, 5);
+    if (d > R * 0.6) continue;
+    const f = 1 - d / (R * 0.6), dir = V3().subVectors(C, P); dir.y = Math.max(dir.y, 0.2); dir.normalize();
+    critHit(c, dir, { blast: f * Math.min(1.3, s) });
+  }
+}
+function critNoise(P, R) { for (const c of SEC.crit) if (c.state !== 'gone' && c.outer.position.distanceTo(P) < R) critScare(c, 3); }
+function critBall(b) { for (const c of SEC.crit) if (c.state !== 'gone' && c.outer.position.distanceTo(b.p) < c.T.r + 0.32) { critHit(c, V3().copy(b.v).normalize(), { ball: true }); b.v.multiplyScalar(0.9); } }
+function critUpdate(c, dt, rdt) {
+  c.t += dt; c.scr -= rdt; c.ph += dt;
+  const T = c.T, P = PL.p, dx = c.p.x - P.x, dz = c.p.z - P.z, dPl = Math.hypot(dx, dz), sameFloor = Math.abs(P.y - c.p.y) < 1.8, play = H.state === 'play';
+  const pr = c.parts, beat = SEC.beat;
+  if (c.state === 'fly') {
+    if (!c.body) { c.state = 'daze'; c.t = 0; return; }
+    const bp = phys.pos(c.body), q = phys.rot(c.body), v = phys.vel(c.body), sp = Math.hypot(v.x, v.y, v.z);
+    c.outer.position.set(bp.x, bp.y, bp.z); c.outer.quaternion.set(q.x, q.y, q.z, q.w);
+    if (bp.y < TERR.killY) { critRemove(c); return; }
+    terrRescue(c.body, bp);
+    c.fly.top = Math.max(c.fly.top, bp.y - c.fly.y0);
+    c.slow = sp < 0.45 ? c.slow + dt : 0;
+    if (c.slow > 0.45 || c.t > 7) {
+      const dist = Math.hypot(bp.x - c.fly.p0.x, bp.z - c.fly.p0.z), top = c.fly.top;
+      if (play && top > 2.2) hBizarre(top * 10, `${T.name} ${c.type === 'chicken' ? 'vyletěla' : 'vyletěl'} ${fmt1(top)} m vysoko`);
+      else if (play && dist > 6) hBizarre(dist * 4, `${T.name} ${c.type === 'chicken' ? 'proletěla' : 'proletěl'} ${fmt1(dist)} m vzduchem`);
+      phys.remove(c.body); c.body = null;
+      const g = critGround(bp.x, bp.y, bp.z);
+      _v.set(0, 0, 1).applyQuaternion(_q.set(q.x, q.y, q.z, q.w));
+      c.p.set(bp.x, g > -1e9 ? g : bp.y - T.r, bp.z); c.yaw = c.ang = Math.atan2(_v.x, _v.z);
+      c.state = 'daze'; c.t = 0; critPose(c);
+    }
+    return;
+  }
+  if (c.state === 'daze') {
+    critPose(c); c.inner.position.y = -c.hc / c.outer.scale.x;
+    if (c.t > 1.5) { c.state = c.fear > 0 || c.type === 'rooster' ? 'flee' : 'idle'; c.t = 0; critPose(c); }
+    return;
+  }
+  // chůze a pád: bez podlahy pod nohama se z postavičky stane těleso, které padá
+  const g = critGround(c.p.x, c.p.y, c.p.z);
+  if (g < c.p.y - 0.25) { if (play || PROP.phys) critFling(c, { x: 0, y: -0.5, z: 0 }); return; }
+  c.p.y = g;
+  if (play && SEC.revealed && sameFloor && dPl < T.fear) critScare(c, 3.5);
+  if (dPl < 0.42 && sameFloor && dPl > 1e-3 && critFree(c, c.p.x + dx / dPl * 0.02, c.p.z + dz / dPl * 0.02)) { c.p.x += dx / dPl * 0.02; c.p.z += dz / dPl * 0.02; }   // hráč je odstrčí
+  c.fear = Math.max(0, c.fear - dt);
+  let speed = 0, target = c.ang;
+  const chase = c.type === 'rooster' && SEC.revealed && play && sameFloor && dPl < 8;
+  if (chase) {
+    target = Math.atan2(-dx, -dz); speed = dPl > 0.6 ? T.run * 0.8 : 0;
+    if (dPl < 0.7 && c.peck <= 0) {
+      c.peck = 1.1; const k = 1 / Math.max(0.1, dPl); PL.v.x -= dx * k * 3.5; PL.v.z -= dz * k * 3.5; PL.v.y += 1.6; PL.ground = false;
+      trauma = Math.min(1, trauma + 0.14); Snd.peck(); Snd.scream('rooster', 0.8);
+      if (clock - H.lastMsg > 1.5) { H.lastMsg = clock; hEvt('Kohout tě klovl!'); }
+      hBizarre(35, 'Kohout zaútočil na demoliční četu');
+    }
+    c.peck -= dt;
+  } else if (c.state === 'stare') {
+    target = Math.atan2(-dx, -dz);
+    if (c.t > 0) { c.state = 'flee'; c.t = 0; critYell(c); }   // zírání: c.t běží od záporné hodnoty (critScare)
+  } else if (c.state === 'flee') {
+    target = Math.atan2(dx, dz) + Math.sin(c.ph * 1.7) * 0.7; speed = T.run;
+    if (c.scr <= 0 && c.fear > 0.5) critYell(c);
+    if (c.fear <= 0) { c.state = 'idle'; c.t = 0; }
+  } else {   // klid: mimozemšťané tančí, trpaslíci stojí na stráži, slepice zobou a popocházejí
+    if (c.type === 'chicken' || c.type === 'rooster') {
+      c.wT -= dt; if (c.wT <= 0) { c.wT = rnd(0.8, 2.6); c.walk = Math.random() < 0.55 ? rnd(0.5, 1.1) : 0; c.ang += rnd(-1.6, 1.6); }
+      if (c.walk > 0) { c.walk -= dt; speed = 0.38; }
+      target = c.ang;
+    } else if (c.type === 'alien' && SEC.danceAt) target = Math.atan2(SEC.danceAt.x - c.p.x, SEC.danceAt.z - c.p.z);
+  }
+  // natočení a krok s hledáním volného směru (zeď = zkus jiný úhel)
+  let da = ((target - c.ang + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  c.ang += clamp(da, -8 * dt, 8 * dt);
+  if (speed > 0) {
+    const step = speed * dt, stuck = !critFree(c, c.p.x, c.p.z); let moved = false;
+    for (const o of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.4, -2.4, Math.PI]) {
+      const a = c.ang + o, sx = Math.sin(a), sz = Math.cos(a), nx = c.p.x + sx * step, nz = c.p.z + sz * step;
+      if (stuck ? critBlocked(c, nx + sx * T.r * 0.8, nz + sz * T.r * 0.8) : !critFree(c, nx, nz)) continue;
+      c.p.x += sx * step; c.p.z += sz * step; if (o) c.ang += o * 0.5; moved = true; break;
+    }
+    if (!moved) c.ang += rnd(-2, 2);
+  }
+  c.yaw = c.ang;
+  if (Math.hypot(c.p.x - H.center.x, c.p.z - H.center.z) > 45) { critRemove(c); return; }   // utekla z dohledu
+  critPose(c);
+  // animace: kroky z jedné sinusovky a její opačné fáze (3d/05 levný walk cycle)
+  const w = speed > 0 ? c.ph * (speed > 1 ? 16 : 9) : 0, amp = speed > 1 ? 0.75 : speed > 0 ? 0.35 : 0, sc = 1 / c.outer.scale.x;
+  if (pr.legL) { pr.legL.rotation.x = Math.sin(w) * amp; pr.legR.rotation.x = -Math.sin(w) * amp; }
+  let bob = speed > 0 ? Math.abs(Math.sin(w)) * 0.03 : 0, twist = 0, tilt = 0;
+  if (c.type === 'alien') {
+    const dance = c.state === 'idle' && SEC.music;
+    if (dance) { const b = beat * Math.PI; bob = Math.abs(Math.sin(b)) * 0.07; twist = Math.sin(b * 0.5 + c.ph * 0.1) * 0.45; pr.armL.rotation.set(0, 0, 2.3 + Math.sin(b) * 0.5); pr.armR.rotation.set(0, 0, -2.3 + Math.sin(b + 1.2) * 0.5); pr.head.rotation.z = Math.sin(b) * 0.15; }
+    else if (c.state === 'flee' || c.state === 'stare') { const f = c.state === 'flee' ? Math.sin(c.ph * 26) * 0.5 : 0; pr.armL.rotation.set(f, 0, 2.7 + f * 0.3); pr.armR.rotation.set(-f, 0, -2.7 - f * 0.3); pr.head.rotation.z = 0; }
+    else { pr.armL.rotation.set(0, 0, 0.15); pr.armR.rotation.set(0, 0, -0.15); pr.head.rotation.z = 0; }
+  } else if (c.type === 'gnome') {
+    tilt = speed > 0 ? Math.sin(w) * 0.16 : 0;
+    const up = c.state === 'flee' || c.state === 'stare';
+    pr.armL.rotation.set(0, 0, up ? 2.6 + Math.sin(c.ph * 22) * 0.3 : 0.2); pr.armR.rotation.set(0, 0, up ? -2.6 - Math.sin(c.ph * 22) * 0.3 : -0.2);
+  } else {
+    const flap = c.state === 'flee' || chase ? 0.25 + Math.abs(Math.sin(c.ph * 30)) * 1.1 : 0.05;
+    pr.wingL.rotation.z = flap; pr.wingR.rotation.z = -flap;
+    const pk = c.state === 'idle' && speed === 0 ? Math.max(0, Math.sin(c.ph * 3.1 + c.scr)) ** 6 : 0;
+    pr.head.rotation.x = pk * 1.1; pr.head.position.y = 0.3 - pk * 0.05;
+  }
+  c.inner.position.y = -c.hc * sc + bob * sc; c.inner.rotation.set(0, twist, tilt);
+}
+// výběr místnosti, zavřené dveře, obsah; volá se po vygenerování domu, před nábytkem
+function secretClear() {
+  for (const c of SEC.crit) { c.body = null; critRemove(c); }   // těleso patří světu, který se stejně resetuje (jako trosky v houseClear)
+  SEC.crit = []; SEC.seq = null; SEC.revealed = false; SEC.bomb = null; SEC.ball = null; SEC.music = false; SEC.ended = false; SEC.danceAt = null;
+  if (SEC.tiles) { houseRoot.remove(SEC.tiles.mesh); SEC.tiles = null; }
+  if (SEC.bus) SEC.bus.out.gain.value = 0;
+  ambU.uDs.value.w = 0;
+  if ($('hSecret')) { $('hSecret').classList.remove('on'); $('hBomb').hidden = true; }
+}
+function secretPick(info) {
+  secretClear(); SEC.kind = null; SEC.box = null; SEC.spawns = [];
+  const kinds = Object.keys(SECRETS), kind = SEC.force || kinds[Math.floor(Math.random() * kinds.length)];
+  const t0 = info.types[0] || [];
+  const cand = info.rooms.map((rm, i) => ({ rm, i, tp: t0[i], a: (rm.x1 - rm.x0 + 1) * (rm.z1 - rm.z0 + 1) }))
+    .filter(c => c.tp !== 'hall' && c.tp !== 'kitchen' && c.tp !== 'bath' && c.rm.x1 - c.rm.x0 >= 23 && c.rm.z1 - c.rm.z0 >= 23)
+    .sort((a, b) => (b.tp === 'living') - (a.tp === 'living') || b.a - a.a);
+  if (!cand.length) return;
+  const { rm, i: ri } = cand[0], Y = FLOOR0, ox = H.ox, oz = H.oz;
+  const box = { x0: ox + rm.x0 * VS, x1: ox + (rm.x1 + 1) * VS, z0: oz + rm.z0 * VS, z1: oz + (rm.z1 + 1) * VS, y0: Y * VS, y1: (Y + 27) * VS };
+  box.cx = (box.x0 + box.x1) / 2; box.cz = (box.z0 + box.z1) / 2;
+  SEC.kind = kind; SEC.box = box;
+  // zavřené dveře do místnosti (jinak jsou mezi pokoji jen otvory)
+  const leaf = MAT.wood(0x7a5236), frame = MAT.wood(0x4a3426), knob = MAT.metal(0xc9a24a), doorsAt = [];
+  for (const e of info.doors) if (e.i === ri || e.j === ri) {
+    for (let s = e.t; s < e.t + 9; s++) for (const ww of [e.w, e.w + 1]) for (let y = Y; y < Y + 20; y++) {
+      const [x, z] = e.ax === 'x' ? [ww, s] : [s, ww];
+      H.vox[vi(x, y, z)] = s === e.t || s === e.t + 8 || y === Y + 19 ? frame : s === e.t + 6 && (y === Y + 9 || y === Y + 10) ? knob : leaf;
+    }
+    const [x, z] = e.ax === 'x' ? [e.w + 1, e.t + 4.5] : [e.t + 4.5, e.w + 1]; doorsAt.push([ox + x * VS, oz + z * VS]);
+  }
+  // nábytek místnosti pryč, místo něj obsah tajemství
+  const inBox = (x, z, m = 0) => x > box.x0 - m && x < box.x1 + m && z > box.z0 - m && z < box.z1 + m;
+  info.props = info.props.filter(p => !(inBox(p.x, p.z, 0.05) && p.y < box.y1 - 0.2));
+  const floorOk = (x, z) => solidW(x, box.y0 - 0.05, z) && !solidW(x, box.y0 + 0.25, z) && !solidW(x, box.y0 + 0.9, z) && doorsAt.every(([dx, dz]) => Math.hypot(x - dx, z - dz) > 1.15);
+  const grid = (m, step) => { const out = []; for (let x = box.x0 + m; x <= box.x1 - m + 1e-6; x += step) for (let z = box.z0 + m; z <= box.z1 - m + 1e-6; z += step) if (floorOk(x, z)) out.push([x, z]); return out; };
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const y = box.y0, S = SECRETS[kind], nC = S.n[0] + Math.floor(Math.random() * (S.n[1] - S.n[0] + 1)), faceC = (x, z) => Math.atan2(box.cx - x, box.cz - z);
+  if (kind === 'disco') {
+    info.props.push({ kit: 'disco_ball', x: box.cx, y: box.y1 - 0.95, z: box.cz, yaw: 0 });
+    const m = 0.4; for (const [x, z] of [[box.x0 + m, box.z0 + m], [box.x1 - m, box.z1 - m]]) if (floorOk(x, z)) info.props.push({ kit: 'speaker', x, y, z, yaw: faceC(x, z) });
+    SEC.danceAt = V3(box.cx, y, box.cz);
+    for (let k = 0; k < nC; k++) { const a = k / nC * 6.283 + rnd(-0.2, 0.2), r = rnd(0.9, 1.5), x = box.cx + Math.sin(a) * r, z = box.cz + Math.cos(a) * r; if (floorOk(x, z)) SEC.spawns.push(['alien', x, y, z, faceC(x, z)]); }
+    // svítící taneční parket z dlaždic 0,6 m (dlaždice nad zbořenou podlahou zhasne)
+    const n = Math.max(2, Math.min(6, Math.floor(Math.min(box.x1 - box.x0, box.z1 - box.z0) / 0.6) - 2)), list = [];
+    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) list.push([box.cx + (a - (n - 1) / 2) * 0.6, box.cz + (b - (n - 1) / 2) * 0.6]);
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.56, 0.56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff }), list.length);
+    list.forEach(([x, z], k) => { mesh.setMatrixAt(k, _m.makeTranslation(x, y + 0.006, z)); mesh.setColorAt(k, _c.setRGB(0.05, 0.05, 0.06)); });
+    mesh.frustumCulled = false; houseRoot.add(mesh); SEC.tiles = { mesh, list, alive: list.map(() => true), chk: 0 };
+  } else if (kind === 'pyro') {
+    const cells = grid(0.42, 0.68).sort((a, b) => Math.hypot(a[0] - box.cx, a[1] - box.cz) - Math.hypot(b[0] - box.cx, b[1] - box.cz));
+    const kits = ['bomb', 'tnt', 'gas_pb', 'Barrel_01', 'tnt', 'gas_pb', 'tnt', 'Barrel_01', 'gas_pb', 'tnt', 'gas_pb', 'Barrel_01', 'tnt', 'gas_pb'];
+    const used = cells.slice(0, Math.min(kits.length, Math.max(1, Math.floor(cells.length * 0.6))));
+    used.forEach(([x, z], k) => info.props.push({ kit: kits[k], x, y, z, yaw: k === 0 ? faceC(x, z) + Math.PI : rnd(0, 6.28) }));
+    const free = shuffle(cells.slice(used.length)); for (let k = 0; k < nC && k < free.length; k++) SEC.spawns.push(['gnome', free[k][0], y, free[k][1], faceC(free[k][0], free[k][1]) + Math.PI]);
+  } else {
+    const wall = shuffle(grid(0.5, 0.55).filter(([x, z]) => Math.min(x - box.x0, box.x1 - x, z - box.z0, box.z1 - z) < 0.7));
+    ['hay', 'hay', 'hay', 'wooden_crate_01', 'wooden_crate_01'].forEach((kit, k) => { const c = wall[k * 3]; if (c) info.props.push({ kit, x: c[0], y, z: c[1], yaw: Math.abs(c[0] - box.x0) < 0.7 || Math.abs(box.x1 - c[0]) < 0.7 ? Math.PI / 2 : 0 }); });
+    const open = shuffle(grid(0.9, 0.5));
+    for (let k = 0; k < nC + 1 && k < open.length; k++) SEC.spawns.push([k === 0 ? 'rooster' : 'chicken', open[k][0], y, open[k][1], rnd(0, 6.28)]);
+  }
+  for (const s of SEC.spawns) critSpawn(...s);
+}
+// na začátku hry: postavičky zpět na místa (dům se nemusel přestavět), teaser po pár vteřinách
+function secretStart() {
+  if (!SEC.kind) return;
+  for (const c of SEC.crit) { c.body = null; critRemove(c); }   // housePhysics už svět vyresetoval
+  SEC.crit = []; for (const s of SEC.spawns) critSpawn(...s);
+  SEC.revealed = false; SEC.bomb = null; SEC.ended = false; SEC.losT = 0; SEC.tick = 0; SEC.seq = null; $('hBomb').hidden = true; $('hSecret').classList.remove('on');
+  H.cineT = 0; H.cineAt = -99; $('cine').classList.remove('on');
+  SEC.ball = null; SEC.music = SEC.kind === 'disco';
+  if (SEC.kind === 'pyro') bombScreen(30);
+  H.timers.push({ t: 4.5, fn: () => { if (!SEC.revealed && SEC.kind) hEvt(SECRETS[SEC.kind].teaser); } });
+}
+function secReveal(how) {
+  if (!SEC.kind || SEC.revealed || H.state !== 'play') return;
+  SEC.revealed = true;
+  const S = SECRETS[SEC.kind], b = SEC.box, C = V3(b.cx, b.y0 + 1.2, b.cz);
+  slowmo(0.32, 0.45, 0.9);
+  $('hSecretT').textContent = S.name; $('hSecretS').textContent = S.sub; $('hSecret').classList.add('on'); clearTimeout(SEC.banT); SEC.banT = setTimeout(() => $('hSecret').classList.remove('on'), 3600);
+  Snd.sting(SEC.kind);
+  hPts(500, C, 'Tajemství!', { cls: 'g', combo: false }); hBizarre(55, S.found);
+  if (SEC.kind === 'pyro') { SEC.bomb = { t: 30, last: 31 }; $('hBomb').hidden = false; }
+  if (SEC.kind === 'kurnik') for (let i = 0; i < 40; i++) feathers.spawn(b.cx + rnd(-1.5, 1.5), b.y0 + rnd(0.8, 2.2), b.cz + rnd(-1.5, 1.5), rnd(-0.5, 0.5), rnd(0, 0.5), rnd(-0.5, 0.5), 0.06, FEATHER, 14);
+  for (const c of SEC.crit) if (c.state !== 'gone' && how !== 'look') critScare(c, 3);
+}
+function secretBoom(P) { const b = SEC.box; if (b && P.x > b.x0 - 1 && P.x < b.x1 + 1 && P.z > b.z0 - 1 && P.z < b.z1 + 1 && P.y < b.y1 + 1) secReveal('boom'); }
+const _sd = V3();
+function secretUpdate(rdt, dt) {
+  if (!SEC.kind) return;
+  const b = SEC.box, play = H.state === 'play', cam = camera.position;
+  // odhalení: hráč vešel dovnitř, nebo do místnosti vidí (rozbité dveře, díra ve zdi, okno)
+  if (play && !SEC.revealed) {
+    if (cam.x > b.x0 - 0.1 && cam.x < b.x1 + 0.1 && cam.z > b.z0 - 0.1 && cam.z < b.z1 + 0.1 && cam.y > b.y0 - 0.4 && cam.y < b.y1 + 0.4) secReveal('in');
+    else if ((SEC.losT -= rdt) <= 0) {
+      SEC.losT = 0.25; camera.getWorldDirection(_d);
+      const pts = [V3(b.cx, b.y0 + 1.1, b.cz), ...SEC.crit.filter(c => c.state !== 'gone').slice(0, 3).map(c => c.outer.position)];
+      for (const p of pts) { _sd.subVectors(p, cam); const L = _sd.length(); if (L > 14) continue; _sd.multiplyScalar(1 / L); if (_sd.dot(_d) > 0.55 && !voxRay(cam, _sd, L - 0.25)) { secReveal('look'); break; } }
+    }
+  }
+  SEC.beat = SEC.seq ? (Snd.ctx.currentTime - SEC.seq.t0) * DISCO.bpm / 60 : H.gt * DISCO.bpm / 60;
+  for (const c of SEC.crit) if (c.state !== 'gone') critUpdate(c, dt, rdt);
+  // disko koule: dokud visí, točí se a sype tečky světla po stěnách (shader ambPatch); rozbitá = konec večírku
+  if (SEC.kind === 'disco') {
+    if (!SEC.ball) SEC.ball = PROP.list.find(p => p.kit === 'disco_ball') || null;
+    const ball = SEC.ball, alive = ball && !ball.broken;
+    if (SEC.music && ball && !alive) {
+      SEC.music = false; Snd.scratch();
+      if (play) { const C = ball.bb.getCenter(V3()); hPts(400, C, 'Konec večírku!', { cls: 'g', heat: 2 }); hBizarre(45, 'Disko koule se roztříštila uprostřed mimozemského večírku'); hEvt('Hudba utichla. Mimozemšťané jsou naštvaní.'); }
+      for (const c of SEC.crit) critScare(c, 6);
+    }
+    const u = ambU.uDs.value;
+    if (alive) {
+      if (!ball.body || phys.sleeping(ball.body)) for (const m of ball.g.children) m.rotation.y = H.gt * 0.7;
+      const bc = _sd.copy(ball.g.position); u.set(bc.x, bc.y + 0.2, bc.z, SEC.music ? 1.25 : 0);   // střed koule (počátek kusu je její spodek)
+      ambU.uDsT.value.set(H.gt * 0.7, 0);
+      const pulse = Math.max(0, 1 - (SEC.beat % 1) * 3), h = (SEC.beat / 8) % 1;
+      ambU.uDsC.value.setHSL(h, 0.9, 0.5).multiplyScalar(0.05 + 0.07 * pulse);
+    } else u.w = Math.max(0, u.w - rdt * 2);
+    ambU.uDsB0.value.set(b.x0 - 0.06, b.y0 - 0.06, b.z0 - 0.06); ambU.uDsB1.value.set(b.x1 + 0.06, b.y1 + 0.06, b.z1 + 0.06);
+    if (SEC.tiles) {
+      const T = SEC.tiles, mesh = T.mesh, bi = Math.floor(SEC.beat);
+      if ((T.chk -= rdt) <= 0) { T.chk = 0.25; T.list.forEach(([x, z], k) => { if (T.alive[k] && !solidW(x, b.y0 - 0.05, z)) { T.alive[k] = false; mesh.setMatrixAt(k, ZERO_M); mesh.instanceMatrix.needsUpdate = true; } }); }
+      if (bi !== T.bi) {
+        T.bi = bi;
+        T.list.forEach((_, k) => { if (!SEC.music) mesh.setColorAt(k, _c.setRGB(0.05, 0.05, 0.06)); else { const hh = ((k * 7 + bi * 3) % 5) / 5, on = (k + bi) % 3 !== 0; mesh.setColorAt(k, on ? _c.setHSL(hh, 1, 0.55).multiplyScalar(1.6) : _c.setRGB(0.06, 0.05, 0.08)); } });
+        mesh.instanceColor.needsUpdate = true;
+      }
+    }
+    if (SEC.music) for (const p of PROP.list) if (p.kit === 'speaker' && !p.broken && (!p.body || phys.sleeping(p.body))) { const s = 1 + Math.max(0, 1 - (SEC.beat % 1) * 4) * 0.025; for (const m of p.g.children) m.scale.setScalar(s); }
+  }
+  // sklad pyrotechniky: maják a odpočet časované bomby; v 0 bomba odpálí bednu, na které leží (a řetěz zbytek)
+  if (SEC.kind === 'pyro') {
+    const bomb = PROP.list.find(p => p.kit === 'bomb'), bAlive = bomb && !bomb.broken, u = ambU.uDs.value;
+    if (SEC.bomb && bAlive && play) {
+      const B = SEC.bomb; B.t -= dt;
+      const s = Math.ceil(B.t);
+      if (s !== B.last) { B.last = s; bombScreen(B.t); $('hBomb').textContent = `BOMBA 0:${String(Math.max(0, s)).padStart(2, '0')}`; Snd.beep(s <= 5); if (s === 10) { hEvt('Deset vteřin! Trpaslíci prchají'); for (const c of SEC.crit) critScare(c, 12); } }
+      if (s <= 5 && (B.t % 0.5) < dt) Snd.beep(true);
+      if (B.t <= 0) { SEC.bomb = null; $('hBomb').hidden = true; hBizarre(70, 'Časovaná bomba odpálila celý tajný sklad'); propHit(bomb, bomb.bb.getCenter(V3()), 99, null, true); }
+    } else if (SEC.bomb && !bAlive) { SEC.bomb = null; $('hBomb').hidden = true; }
+    if (SEC.revealed && (SEC.bomb || bAlive)) { u.set(b.cx, b.y1 - 0.2, b.cz, 1); ambU.uDsT.value.set(H.gt * 5, 1); ambU.uDsC.value.setRGB(1, 0.07, 0.03); }
+    else u.w = Math.max(0, u.w - rdt * 2);
+    ambU.uDsB0.value.set(b.x0 - 0.06, b.y0 - 0.06, b.z0 - 0.06); ambU.uDsB1.value.set(b.x1 + 0.06, b.y1 + 0.06, b.z1 + 0.06);
+    if (!SEC.revealed && play && (SEC.tick -= rdt) <= 0) { SEC.tick = 1; const bus = secBus(); if (bus) secNoise('bandpass', 3200, Snd.ctx.currentTime, 0.03, 0.5, bus.inp, 4); }
+  }
+  if (SEC.kind === 'kurnik' && play && (SEC.tick -= rdt) <= 0) {
+    SEC.tick = rnd(1.2, 3); const bus = secBus(), live = SEC.crit.filter(c => c.state !== 'gone');
+    if (bus && live.length && !SEC.revealed) { const t = Snd.ctx.currentTime, f = rnd(470, 560); for (let i = 0; i < 3; i++) secOsc('square', f, f * 0.92, t + i * 0.12, 0.07, 0.25, bus.inp, { bp: 1100, q: 4 }); }
+    else if (SEC.revealed && live.length && Math.random() < 0.5) { const c = live[Math.floor(Math.random() * live.length)]; Snd.scream(c.type === 'rooster' ? 'chicken' : c.type, clamp(2 / (1 + c.p.distanceTo(PL.p)), 0.1, 0.6)); }
+  }
+  // hudební sběrnice: za zdí tlumená a tišší, uvnitř nebo s výhledem otevřená; ve zpomalení se zavře jako ve filmu
+  const bus = secBus();
+  if (bus && !Snd.muted) {
+    const d = Math.hypot(cam.x - b.cx, cam.y - (b.y0 + 1.2), cam.z - b.cz), inside = cam.x > b.x0 && cam.x < b.x1 && cam.z > b.z0 && cam.z < b.z1 && cam.y > b.y0 - 0.4 && cam.y < b.y1 + 0.4;
+    const open = inside || (SEC.revealed && d < 7), on = (play || H.state === 'end') && (SEC.music || SEC.kind !== 'disco');
+    const gain = on ? clamp(1.6 / (1 + d * 0.22), 0.04, 0.6) * (open ? 1 : 0.55) * (H.state === 'end' ? 0.4 : 1) : 0;
+    const f = timeScale < 0.6 ? 500 : open ? 14000 : 380, now = Snd.ctx.currentTime;
+    bus.out.gain.setTargetAtTime(gain, now, 0.12); bus.lp.frequency.setTargetAtTime(f, now, 0.15);
+    if (SEC.kind === 'disco' && SEC.music && on) {
+      const sq = SEC.seq ||= { t0: now + 0.05, next: now + 0.05, i: 0 }, st = 60 / DISCO.bpm / 4;
+      if (sq.next < now) { const skip = Math.ceil((now - sq.next) / st); sq.next += skip * st; sq.i += skip; }
+      while (sq.next < now + 0.16) { discoStep(sq.i, sq.next, bus.inp); sq.next += st; sq.i++; }
+    }
+  }
+}
+// filmové zřícení: poslední nosný kus povolí → široký formát 2,39:1 (3d/10), zpomalení, dunění, mírný nájezd (bez rotace kamery, 3d/20)
+function cine(title, P, n) {
+  if (H.state !== 'play' || clock - (H.cineAt ?? -99) < 9) return false;
+  H.cineAt = clock; H.cineT = 3.4;
+  slowmo(0.13, 1.1, 1.7);
+  trauma = Math.min(1, trauma + 0.3);
+  $('cineT').textContent = title; $('cine').classList.add('on');
+  Snd.rumble();
+  for (let i = 0; i < 30; i++) dustPuff(V3(P.x + rnd(-3, 3), Math.max(0.3, P.y - rnd(0, 2)), P.z + rnd(-3, 3)), 2.2, 1.5);
+  for (const c of SEC.crit) critScare(c, 6);
+  return true;
+}
+function cineUpdate(rdt) {
+  if (!(H.cineT > 0)) return;
+  H.cineT -= rdt;
+  const t = 3.4 - H.cineT, k = H.state !== 'play' ? 0 : Math.min(1, t / 0.6) * Math.min(1, Math.max(0, H.cineT) / 0.9);
+  if (!REDUCED) { camera.fov = 70 - 6 * k * k * (3 - 2 * k); camera.updateProjectionMatrix(); dustScale(); }
+  if (H.cineT <= 0 || H.state !== 'play') { H.cineT = 0; $('cine').classList.remove('on'); camera.fov = 70; camera.updateProjectionMatrix(); dustScale(); }
 }
 // ---------- smyčka domu ----------
 function houseUpdate(rdt, dt) {
@@ -6200,6 +6779,7 @@ function houseUpdate(rdt, dt) {
   for (const c of H.charges) c.led.visible = Math.sin(clock * 9) > 0;
   propUpdate(rdt);
   if (H.state === 'play') gasUpdate(dt);
+  secretUpdate(rdt, dt); cineUpdate(rdt);
   crumbs.update(dt); glassBits.update(dt); splinters.update(dt); potShards.update(dt); feathers.update(dt); papers.update(dt); leaves.update(dt);
   flushDirty(H.state === 'play' ? 6 : 64, 8);
   ambStep(2600, clock);
@@ -6334,9 +6914,10 @@ function hBoom(P, src, trig) {
   H.stat.booms++; if (src === 'gas') H.stat.gas++;
   // řetěz = výbuch, který odpálil jiný výbuch (tlaková vlna zapálila lahev, sud nebo nálož); herní čas, ať ho zpomalení nepřetrhne
   const ch = H.chain; ch.n = trig && H.gt - ch.t < 3 ? ch.n + 1 : 1; ch.t = H.gt; ch.max = Math.max(ch.max, ch.n);
-  hPts(src === 'gas' ? 500 : 300, P, src === 'gas' ? 'Plynová lahev' : src === 'sud' ? 'Sud' : src === 'nalož' ? 'Nálož' : 'Výbuch', { cls: 'm', heat: 2 });
+  hPts(src === 'gas' ? 500 : 300, P, src === 'gas' ? 'Plynová lahev' : src === 'sud' ? 'Sud' : src === 'tnt' ? 'Bedna TNT' : src === 'nalož' ? 'Nálož' : 'Výbuch', { cls: 'm', heat: 2 });
   if (ch.n >= 2) {
-    hPts(250 * ch.n, P, `Řetězovka ×${ch.n}`, { cls: 'g', combo: false }); hEvt(`Řetězová reakce · ${ch.n} ${boomsWord(ch.n)}`);
+    // strop bonusu: sklad pyrotechniky dá řetěz 14 a body by ujely
+    hPts(250 * Math.min(ch.n, 8), P, `Řetězovka ×${ch.n}`, { cls: 'g', combo: false }); hEvt(`Řetězová reakce · ${ch.n} ${boomsWord(ch.n)}`);
     if (clock - H.chainSlow > 0.8) { H.chainSlow = clock; slowmo(0.2, 0.3, 1.0); }
     hBizarre(40 * ch.n, `Řetězová reakce: ${ch.n} ${boomsWord(ch.n)} za sebou`);
   }
@@ -6347,6 +6928,14 @@ function hCollapse(n, P, ex) {
   H.stat.falls++;
   const big = n > 5000;
   hPts(n * 0.3, P, big ? 'Velké zřícení' : 'Zřícení', { cls: big ? 'g' : 'c', heat: big ? 2 : 1 });
+  critNoise(P, 10);
+  // poslední nosný kus: povolil najednou velký díl toho, co ještě stálo → filmové zřícení
+  const left = H.orig - H.gone + n;
+  if (n >= 6000 && n >= left * 0.12 && cine(ex ? 'Dům to nevydržel' : 'Poslední trám povolil', P, n)) {
+    hPts(n * 0.4, P, 'Poslední trám!', { cls: 'g', heat: 3, combo: false });
+    hBizarre(60 + n / 150, `${ex ? 'Po výbuchu se zřítilo' : 'Poslední trám povolil a zřítilo se'} ${fmt1(n / 1000)} m³ domu naráz`);
+    return;
+  }
   if (big && !ex && clock - S.lastSlow > 1.2) { S.lastSlow = clock; slowmo(0.3, 0.25, 0.9); }
   hBizarre(n / 120, `Najednou se zřítilo ${fmt1(n / 1000)} m³ domu`);
 }
@@ -6422,7 +7011,7 @@ function housePlay(fresh) {
   PL.p.copy(H.spawn.p); PL.p.y = Math.max(PL.p.y, gH(PL.p.x, PL.p.z)); PL.v.set(0, 0, 0); PL.yaw = H.spawn.yaw; PL.pitch = -0.04; PL.fly = false; PL.eye = 0; PL.keys.clear();
   housePhysics();
   H.state = 'play'; S.state = 'house'; H.cool = 0; H.hold = false; H.t0 = clock; H.used = { charges: 0, balls: 0 }; H.hudT = 0; H.ignoreUnlock = false;
-  hScoreReset();
+  hScoreReset(); secretStart();
   renderTools(); renderFly();
   $('hName').textContent = H.spec.name; $('hAttr').hidden = !H.spec.osm; $('hCz').hidden = !H.spec.cz; $('hEngine').textContent = 'fyzika ' + phys.name;
   $('hPct').textContent = '0'; $('hBar').style.width = '0%';
@@ -6457,11 +7046,12 @@ function housePause() {
 }
 function houseResume() { $('ov').hidden = true; $('cardPause').hidden = true; H.state = 'play'; canvas.focus(); requestLock(); }
 function houseEnd() {
-  H.state = 'end'; clearPops(); $('cardPause').hidden = true; $('hhud').hidden = true;
+  H.state = 'end'; clearPops(); $('cardPause').hidden = true; $('hhud').hidden = true; SEC.bomb = null;
   const t = Math.round(clock - H.t0), mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, '0');
   const rk = hRank(), key = 'hbest.' + H.spec.name, best = store.get(key, 0), rec = H.score > best;
   if (rec) store.set(key, H.score);
   showEnd(rec && best ? 'Nový rekord!' : `Zbořeno ${H.pct} %`, fmt(H.score), [['Hodnocení', `${rk.stars} ${rk.title}`], ['Zbořeno', H.pct + ' %'], ['Nejbizarnější destrukce', H.bizarre ? H.bizarre.text : H.stat.gas ? 'nic, o čem by se vyprávělo' : 'nic šíleného — zkus plynovou lahev'],
+    ...(SEC.kind ? [['Tajemství domu', SEC.revealed ? SECRETS[SEC.kind].name : 'zůstalo za zavřenými dveřmi']] : []),
     ['Nejdelší řetězovka', H.chain.max >= 2 ? `${H.chain.max} ${boomsWord(H.chain.max)}` : '—'], ['Výbuchy', `${H.stat.booms}${H.stat.gas ? ` (lahve ${H.stat.gas})` : ''}`], ['Čas', `${mm}:${ss}`], ['Rekord domu', fmt(Math.max(best, H.score))]],
     'Postavit znovu', 'Enter postaví dům znovu.', () => { $('cardEnd').hidden = true; housePlay(true); }, { alt: 'Upravit dům', onAlt: () => houseEdit() });
 }
@@ -6879,6 +7469,13 @@ window.kaskada = {
   info: () => ({ kind: S.kind, pct: demolished(), placeInfo: S.place && { count: S.place.count, bodies: S.place.bodies, cell: +S.place.cell.toFixed(3), scale: +S.place.scale.toFixed(3), target: S.place.target }, charges: S.charges, state: S.state, level: S.level, total: S.total, target: S.target, shots: S.shots, chips: S.chips, mult: S.mult, alive: blocks.filter(b => b.alive).length, blocks: blocks.length, phys: phys && phys.name }),
   aimAt(x, y, z) { aim.forced = V3(x, y, z); },
   house: {
+    secret(kind) { SEC.force = kind || null; return Object.keys(SECRETS); },
+    secretInfo: () => ({ kind: SEC.kind, revealed: SEC.revealed, box: SEC.box && Object.fromEntries(Object.entries(SEC.box).map(([k, v]) => [k, +v.toFixed(2)])), music: !!SEC.music, bomb: SEC.bomb && +SEC.bomb.t.toFixed(2), ds: +ambU.uDs.value.w.toFixed(2), tiles: SEC.tiles && SEC.tiles.alive.filter(Boolean).length, cine: +(H.cineT || 0).toFixed(2), fov: camera.fov,
+      props: PROP.list.filter(p => SEC.box && p.p.x > SEC.box.x0 && p.p.x < SEC.box.x1 && p.p.z > SEC.box.z0 && p.p.z < SEC.box.z1).map(p => p.kit + (p.broken ? '×' : '')),
+      crit: SEC.crit.map(c => ({ type: c.type, state: c.state, p: c.p.toArray().map(v => +v.toFixed(2)), fear: +c.fear.toFixed(1) })) }),
+    secretReveal() { secReveal('test'); return SEC.revealed; },
+    critHitTest(i, k = 1) { const c = SEC.crit.filter(x => x.state !== 'gone')[i]; if (!c) return null; critHit(c, V3(0, 0.3, 1).normalize(), { kick: k }); return c.state; },
+    cineTest(n = 9000) { return cine('Poslední trám povolil', V3().copy(H.center), n); },
     info: () => ({ state: H.state, nx: H.nx, ny: H.ny, nz: H.nz, chunks: H.chunks.filter(Boolean).length, cols: H.cols.reduce((a, c) => a + (c ? c.length : 0), 0), roof: H.roof.length, roofDown: H.roofDown, panes: H.panes.length, panesAlive: H.panes.filter(p => p.alive).length, debris: H.debris.length, pct: H.pct, gone: H.gone, orig: H.orig, buildMs: H.buildMs, p: PL.p.toArray().map(v => +v.toFixed(2)), ground: PL.ground, tool: H.tool, rooms: H.info.rooms && H.info.rooms.length, types: H.info.types, flights: H.info.flights && H.info.flights.length, doors: H.info.doors && H.info.doors.length, phys: phys && phys.name, exposure: +renderer.toneMappingExposure.toFixed(2), meter: H.meter && +H.meter.toFixed(3), lock: PL.locked, lockFailed: !!H.lockFailed }),
     look(yaw, pitch) { PL.yaw = yaw; PL.pitch = pitch; },
     pos(x, y, z) { PL.p.set(x, y, z); PL.v.set(0, 0, 0); },

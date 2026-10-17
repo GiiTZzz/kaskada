@@ -22,6 +22,11 @@ map a ty ho z první osoby rozebereš na cihly, prkna a peří.
 - `F` létání (mezerník nahoru, `C` dolů), `Esc` pauza
 - V kuchyni a na půdě stojí plynové lahve. Rána kladivem ulomí ventil: lahev syčí, vystřelí po podlaze a za pár
   vteřin bouchne. Výbuch odpálí lahve, sudy a nálože kolem, takže vzniknou řetězové reakce.
+- **Dům s tajemstvím:** v každém domě je jedna místnost v přízemí za zavřenými dveřmi a při každé stavbě v ní čeká jiné
+  překvapení: mimozemská diskotéka (disko koule, svítící parket, hudba a tančící mimozemšťané), sklad pyrotechniky
+  (bedny TNT, sudy, lahve a časovaná bomba se strážními trpaslíky) nebo slepičárna s kohoutem, který kluje. Zvenku je
+  slyšet tlumená hudba, tikání nebo kdákání. Postavičky ječí a utíkají, po ráně odletí. Když po řezu nebo výbuchu
+  povolí velký kus domu najednou nebo spadne celá střecha, přijde zřícení ve zpomaleném záběru.
 - Body se počítají za zbořený objem a za události (okna, nábytek, zřícení, výbuchy, řetězovky). Rychle za sebou
   jdoucí události zvedají násobič komba, velké řetězovky zpomalí čas. Na konci je hodnocení, nejbizarnější
   destrukce a rekord domu.
