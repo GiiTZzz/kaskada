@@ -230,7 +230,7 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="tr"><div class="mode" id="hFly"></div></div>
   <div class="bc"><div class="evt" id="hEvt"></div><div class="tools" id="tools"></div></div>
   <div class="bl"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> chůze · myš rozhlížení · <b>levé tlačítko</b> nářadí · <kbd>1</kbd>–<kbd>6</kbd> nebo kolečko výběr · <kbd>E</kbd> odpálit nálože · <kbd>Esc</kbd> pauza</div>
-  <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a><span id="hCz" hidden> · ortofoto, RÚIAN a výškopis © <a href="https://cuzk.gov.cz" target="_blank" rel="noopener">ČÚZK</a> (CC BY 4.0)</span> · </span><span id="hEngine"></span></div>
+  <div class="br"><span id="hAttr" hidden>Půdorys © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">přispěvatelé OpenStreetMap</a><span id="hPano" hidden></span><span id="hCz" hidden> · ortofoto, RÚIAN a výškopis © <a href="https://cuzk.gov.cz" target="_blank" rel="noopener">ČÚZK</a> (CC BY 4.0)</span> · </span><span id="hEngine"></span></div>
   <div class="lockhint" id="lockHint" hidden>Klikni do hry a rozhlížej se myší</div>
 </div>
 
@@ -246,6 +246,7 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="field"><span class="lab">Střešní krytina</span><div class="sw" id="edRoofCol"></div><button type="button" class="segb" id="edRoofOrtho" hidden aria-pressed="false">Z leteckého snímku</button></div>
   <div class="field"><span class="lab">Okna a dveře</span><div class="sw" id="edFrames"></div></div>
   <div class="field"><span class="lab">Fasády z fotek</span><div class="seg" id="edFac"><button type="button" class="segb" data-s="+z" aria-pressed="false">Čelo</button><button type="button" class="segb" data-s="-x" aria-pressed="false">Vlevo</button><button type="button" class="segb" data-s="+x" aria-pressed="false">Vpravo</button><button type="button" class="segb" data-s="-z" aria-pressed="false">Zadní</button></div><input type="file" id="edFacFile" accept="image/*" hidden><span class="fine">Vyfoť celou stěnu i se štítem, nahraj ji a přetáhni rohy. Okna a dveře se vyřežou tam, kde je označíš.</span></div>
+  <p class="fine" id="edPano" hidden></p>
   <div class="field" id="edScanRow"><span class="lab">Okolí ze skenu z mobilu</span>
     <div class="drop small" id="edScanDrop" tabindex="0" role="button" aria-describedby="edScanNote">Přetáhni sem sken okolí (.spz nebo .ply), nebo klikni</div>
     <input type="file" id="edScanFile" accept=".spz,.ply,.splat,.ksplat" hidden>
@@ -1956,12 +1957,29 @@ function facStyle(t) {
   if (['apartments', 'residential', 'dormitory'].includes(ty) || lv >= 4) return lv >= 6 ? 2 : 1;
   return 0;
 }
+// fotky z ulice (Panoramax): narovnané fotofasády zdí v jednom atlasu, tabulka zdí (rovina, rozsah, výřez atlasu); prázdné, dokud se nenačtou
+const PANO_MAX = 8, PANO_W = 2048, PANO_H = 1024, PDW = 512, PDH = 256, PANO_ATLAS = 2048, PANO_WALLS = 160;
+const panoU = { uWallN: { value: 0 }, uWallT: { value: null }, uAtlas: { value: null }, uPanoK: { value: 1 } };
+function panoBlankU() {
+  const t = new THREE.DataTexture(new Float32Array(4 * 3), 3, 1, THREE.RGBAFormat, THREE.FloatType); t.needsUpdate = true;
+  const a = new THREE.DataTexture(new Uint8Array(4), 1, 1); a.needsUpdate = true;
+  panoU.uWallT.value = t; panoU.uAtlas.value = a; panoU.uWallN.value = 0;
+}
+panoBlankU();
 const ctxWallMat = (() => {
   const m = new THREE.MeshStandardMaterial({ map: photo('plaster'), roughness: 0.92, vertexColors: true });
   m.onBeforeCompile = sh => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aFac;\nattribute vec3 aSty;\nvarying vec4 vFac;\nvarying vec3 vSty;\nvarying vec2 vFU;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = aFac; vSty = aSty; vFU = uv;');
+    Object.assign(sh.uniforms, panoU);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aFac;\nattribute vec3 aSty;\nvarying vec4 vFac;\nvarying vec3 vSty;\nvarying vec2 vFU;\nvarying vec3 vWP;\nvarying vec3 vWN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = aFac; vSty = aSty; vFU = uv; vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vWP;
+varying vec3 vWN;
+uniform int uWallN;
+uniform highp sampler2D uWallT;
+uniform sampler2D uAtlas;
+uniform float uPanoK;
+vec3 gPhoto = vec3(0.0);
 varying vec4 vFac;
 varying vec3 vSty;
 varying vec2 vFU;
@@ -2024,11 +2042,30 @@ float fbox(vec2 q, vec2 h) { vec2 d = abs(q) - h; return clamp(0.5 - max(d.x, d.
         if (v < pl) alb *= 0.6;                                                              // sokl
         if (!gable) alb *= mix(1.0, 0.68, smoothstep(Hh - 0.35, Hh, v));                    // stín pod okapem
         diffuseColor.rgb *= alb;
+        // fotofasáda z ulice: zeď poznám podle roviny (normála, odstup) a polohy podél hrany; celá zeď z jedné narovnané fotky, žádné záplaty
+        if (uWallN > 0) {
+          vec2 Nh = normalize(vWN.xz);
+          for (int i = 0; i < ${PANO_WALLS}; i++) {
+            if (i >= uWallN) break;
+            vec4 a = texelFetch(uWallT, ivec2(0, i), 0);
+            if (dot(Nh, a.xy) < 0.97 || abs(dot(vWP.xz, a.xy) - a.z) > 0.25) continue;
+            vec4 b = texelFetch(uWallT, ivec2(1, i), 0);
+            float uu = dot(vWP.xz - b.xy, vec2(-a.y, a.x));
+            if (uu < -0.15 || uu > a.w + 0.15 || vWP.y > b.w + 0.02) continue;
+            vec4 r = texelFetch(uWallT, ivec2(2, i), 0);
+            vec2 st = clamp(vec2(uu / a.w, (vWP.y - b.z) / (b.w - b.z)), 0.0, 1.0);
+            vec3 c = texture2D(uAtlas, r.xy + st * r.zw).rgb;
+            float sok = smoothstep(0.0, 0.5, vWP.y - b.z);                                   // sokl u země trochu ztmavit
+            gPhoto = c * uPanoK * mix(0.75, 1.0, sok); diffuseColor.rgb *= 0.0; fTint = 0.0; fRough = 0.85;
+            break;
+          }
+        }
       }`)
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += gPhoto;   // fotka už světlo nese, jen ji vyrovnat na expozici')
       .replace('#include <color_fragment>', '#ifdef USE_COLOR\n  diffuseColor.rgb *= mix(vec3(1.0), vColor.rgb, fTint);\n#endif')
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = fRough;');
   };
-  m.customProgramCacheKey = () => 'ctx-facade';
+  m.customProgramCacheKey = () => 'ctx-facade-photo';
   return m;
 })();
 // zdi jedné budovy jako svislé obdélníky po hranách půdorysu (ven orientované), s metrickými souřadnicemi a stylem pro shader
@@ -4226,6 +4263,311 @@ function houseContext(ctx) {
     }
   }
 }
+// ---------- fotky z ulice: 360° panoramata Panoramax (CC BY-SA 4.0), poloha doladěná obrysem střech proti výškopisu ----------
+// Panoramax je otevřená obdoba Street View (api.panoramax.xyz, bez klíče, CORS). Fotky se promítnou na fasády sousedů po pixelech,
+// zakrytá místa hlídá mapa vzdáleností z povrchu (výškopis DMP − DMR nebo půdorysy) a ze stromů.
+const PANO_API = 'https://api.panoramax.xyz/api/search';
+const PANO = { all: [], sel: [], imgs: [], aN: 0, S: null, credits: [], busy: false, stat: '' };
+async function panoFetch(ctx) {
+  const R = 90, cs = [[-R, -R], [R, -R], [-R, R], [R, R]].map(([x, z]) => ctx.inv(x, z));
+  const la0 = Math.min(...cs.map(c => c[0])), la1 = Math.max(...cs.map(c => c[0])), lo0 = Math.min(...cs.map(c => c[1])), lo1 = Math.max(...cs.map(c => c[1]));
+  const d = await getRes(`${PANO_API}?bbox=${lo0},${la0},${lo1},${la1}&limit=400`, 'json', 20000);
+  const c0 = ctx.inv(0, 0), a = ctx.proj(c0), b = ctx.proj([c0[0] + 0.001, c0[1]]);
+  PANO.aN = Math.atan2(b[0] - a[0], -(b[1] - a[1]));   // kam v herních souřadnicích míří sever
+  return (d.features || []).filter(f => f.assets && f.assets.sd && ((f.properties['pers:interior_orientation'] || {}).field_of_view === 360)).map(f => {
+    const [lo, la] = f.geometry.coordinates, [x, z] = ctx.proj([la, lo]), p = f.properties;
+    return { id: f.id, seq: f.collection || p.collection || '', x, z, yaw: (p['view:azimuth'] || 0) * Math.PI / 180 + PANO.aN, date: (p.datetime || '').slice(0, 10), who: p['geovisio:producer'] || 'neznámý autor', sd: f.assets.sd.href, hd: f.assets.hd && f.assets.hd.href, hc: 2.3, fix: null };
+  });
+}
+// povrch kolem domu po 1 m: terén + výška nad terénem (výškopis), jinak půdorysy z mapy; stromy jako sloupy koruny
+function panoSurface(ctx) {
+  const half = 80, n = 2 * half + 1, S = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = i - half, z = j - half; S[i + j * n] = gH(x, z) + (ctx.hf ? Math.max(0, ctx.hf.at(x, z)) : 0); }
+  const raise = (rings, top) => {   // budova z mapy, kde výškopis chybí
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of rings[0]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (let z = Math.ceil(z0); z <= z1; z++) for (let x = Math.ceil(x0); x <= x1; x++) { const i = x + half, j = z + half; if (i >= 0 && j >= 0 && i < n && j < n && inPoly(x, z, rings)) S[i + j * n] = Math.max(S[i + j * n], gH(x, z) + top); }
+  };
+  if (!ctx.hf) for (const b of ctx.neighbors || []) raise(b.rings, (b.floors || 2) * 3 + 1.5);
+  raise(H.spec.poly, (H.info.roofMax || 8) * 0.8);
+  for (const t of TREE.pts || []) { const r = Math.max(1.5, (t[2] || 8) * 0.22), top = (t[2] || 8) * 0.95; for (let z = Math.floor(t[1] - r); z <= t[1] + r; z++) for (let x = Math.floor(t[0] - r); x <= t[0] + r; x++) { const i = x + half, j = z + half; if (i >= 0 && j >= 0 && i < n && j < n && Math.hypot(x - t[0], z - t[1]) <= r) S[i + j * n] = Math.max(S[i + j * n], gH(x, z) + top); } }
+  return { half, n, S, at(x, z) { const i = Math.round(x) + half, j = Math.round(z) + half; return i >= 0 && j >= 0 && i < n && j < n ? S[i + j * n] : gH(x, z); } };
+}
+// výběr: body na fasádách (každé 2 m) a které panorama je vidí zepředu, zblízka a bez zakrytí; hladově nejvíc nového pokrytí
+function panoSelect(ctx, list) {
+  const walls = [], edges = [], cell = 8, grid = new Map(), key = (i, j) => i * 100003 + j;
+  const addB = (rings, w, bi) => {
+    for (const ring of rings) for (let i = 0; i + 1 < ring.length; i++) {
+      const [ax, az] = ring[i], [bx, bz] = ring[i + 1], dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 0.3) continue;
+      edges.push([ax, az, bx, bz, bi]);
+      let nx = -dz / L, nz = dx / L; if (inPoly((ax + bx) / 2 + nx * 0.05, (az + bz) / 2 + nz * 0.05, rings)) { nx = -nx; nz = -nz; }
+      if (w) for (let t = 1; t < L - 0.5; t += 2) walls.push({ x: ax + dx * t / L + nx * 0.3, z: az + dz * t / L + nz * 0.3, nx, nz, w, bi });
+    }
+  };
+  addB(H.spec.poly, 3, -1);
+  (ctx.neighbors || []).forEach((b, bi) => { const r0 = b.rings[0]; let mx = 0, mz = 0; for (const [x, z] of r0) { mx += x; mz += z; } addB(b.rings, Math.hypot(mx / r0.length, mz / r0.length) < 65 ? 1 : 0, bi); });
+  edges.forEach((e, k) => { for (let i = Math.floor(Math.min(e[0], e[2]) / cell); i <= Math.floor(Math.max(e[0], e[2]) / cell); i++) for (let j = Math.floor(Math.min(e[1], e[3]) / cell); j <= Math.floor(Math.max(e[1], e[3]) / cell); j++) { const q = key(i, j); if (!grid.has(q)) grid.set(q, []); grid.get(q).push(k); } });
+  let stamp = 1; const seen = new Uint32Array(edges.length);
+  const cross = (ax, az, bx, bz, cx, cz, dx, dz) => { const d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax), d3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx); return d1 * d2 < 0 && d3 * d4 < 0; };
+  const blocked = (wl, px, pz) => {   // úsečka bod → panorama protne cizí budovu
+    stamp++; const L = Math.hypot(px - wl.x, pz - wl.z), n = Math.ceil(L / (cell * 0.5));
+    for (let s = 0; s <= n; s++) { const x = wl.x + (px - wl.x) * s / n, z = wl.z + (pz - wl.z) * s / n;
+      for (const k of grid.get(key(Math.floor(x / cell), Math.floor(z / cell))) || []) { if (seen[k] === stamp) continue; seen[k] = stamp; const e = edges[k]; if (e[4] !== wl.bi && cross(wl.x, wl.z, px, pz, e[0], e[1], e[2], e[3])) return true; } }
+    return false;
+  };
+  const cand = list.filter(p => Math.hypot(p.x, p.z) < 55).sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z)).slice(0, 90);
+  const vis = cand.map(p => { const v = []; walls.forEach((wl, k) => { const dx = p.x - wl.x, dz = p.z - wl.z, d = Math.hypot(dx, dz); if (d < 4 || d > 40) return; const f = (dx * wl.nx + dz * wl.nz) / d; if (f < 0.25 || blocked(wl, p.x, p.z)) return; v.push([k, wl.w * f * f / (1 + d * d / 150)]); }); return v; });
+  const cur = new Float32Array(walls.length), sel = [];
+  for (let it = 0; it < PANO_MAX; it++) {
+    let bi = -1, bg = 0;
+    vis.forEach((v, i) => { if (sel.includes(cand[i])) return; let g = 0; for (const [k, w] of v) g += Math.max(0, w - cur[k]); if (g > bg) { bg = g; bi = i; } });
+    if (bi < 0 || bg < 0.5) break;
+    sel.push(cand[bi]); for (const [k, w] of vis[bi]) cur[k] = Math.max(cur[k], w);
+  }
+  return { sel, walls: walls.length, covered: Array.from(cur).filter(w => w > 0).length };
+}
+// obrys střech proti nebi na fotce: po 1° úhel nad obzorem, kde končí obloha (referenční barva oblohy z horních řádků)
+function panoSkyImg(img) {
+  const { width: W, height: Hh, data } = img, ref = [0, 0, 0]; let rn = 0;
+  for (let y = Math.round(Hh * 0.03); y < Hh * 0.12; y += 2) for (let x = 0; x < W; x += 8) { const o = (y * W + x) * 4; ref[0] += data[o]; ref[1] += data[o + 1]; ref[2] += data[o + 2]; rn++; }
+  ref[0] /= rn; ref[1] /= rn; ref[2] /= rn;
+  const sky = (x, y) => { const o = (y * W + x) * 4, r = data[o], g = data[o + 1], b = data[o + 2], l = (r + g + b) / 3, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    return Math.hypot(r - ref[0], g - ref[1], b - ref[2]) < 55 || (b > r + 8 && b >= g && l > 85) || (l > 205 && mx - mn < 30); };
+  const out = new Float32Array(360);
+  for (let k = 0; k < 360; k++) {
+    const x = Math.min(W - 1, Math.floor((k + 0.5) / 360 * W)); let run = 0, y = Math.round(Hh * 0.04), hit = -1;
+    for (; y < Hh * 0.5; y++) { if (sky(x, y)) run = 0; else if (++run >= 3) { hit = y - 2; break; } }
+    out[k] = hit < 0 ? 0 : (0.5 - hit / Hh) * Math.PI;   // bez překážky do obzoru = 0
+  }
+  return out;
+}
+function panoSkyModel(S, x, z, camY) {   // bin k ↔ herní azimut k°
+  const out = new Float32Array(360);
+  for (let k = 0; k < 360; k++) {
+    const g = k * Math.PI / 180, dx = Math.sin(g), dz = -Math.cos(g); let m = 0;
+    for (let d = 2; d < 75; d += d < 20 ? 0.5 : 1) { const e = Math.atan2(S.at(x + dx * d, z + dz * d) - camY, d); if (e > m) m = e; }
+    out[k] = m;
+  }
+  return out;
+}
+// doladění polohy, výšky kamery a natočení: obrys z fotky proti obrysu z povrchu (GPS ±5 m, kompas ± desítky stupňů)
+function panoRefine(p, img, S) {
+  const sk = panoSkyImg(img), deg = Math.PI / 180;
+  // obrys nad 52° je koruna stromu nad hlavou a nic neříká
+  const cost = (mod, dpsi) => {   // fotka bin k (relativně k ose fotky −180°…) ↔ herní azimut k − 180 + yaw + dpsi
+    let c = 0, n = 0; const off = (p.yaw + dpsi) / deg - 180;
+    for (let k = 0; k < 360; k++) { const e = sk[k]; if (e > 0.9) continue; const g = Math.round(((k + off) % 360 + 360) % 360) % 360; c += Math.min(Math.abs(e - mod[g]), 0.15); n++; }
+    return n ? c / n : 1;
+  };
+  const prior = (x, z, ps) => 0.012 * ((x - p.x) ** 2 + (z - p.z) ** 2) / 25 + 0.012 * (ps / (20 * deg)) ** 2;   // GPS ±5 m, kompas ±20°: daleký skok musí obrys zlepšit výrazně
+  const evalAt = (x, z, hc, psis) => { const mod = panoSkyModel(S, x, z, gH(x, z) + hc); let b = { c: 1e9 }; for (const ps of psis) { const c = cost(mod, ps) + prior(x, z, ps); if (c < b.c) b = { c, ps }; } return { ...b, x, z, hc }; };
+  const base = evalAt(p.x, p.z, 2.3, [0]);
+  const coarse = []; for (let a = -30; a <= 30; a += 1) coarse.push(a * deg);
+  let best = { c: 1e9 };
+  for (const hc of [1.9, 2.4, 2.9]) for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) { const r = evalAt(p.x + i * 1.5, p.z + j * 1.5, hc, coarse); if (r.c < best.c) best = r; }
+  const fine = []; for (let a = -2; a <= 2; a += 0.25) fine.push(best.ps + a * deg);
+  const b0 = best;
+  for (const hc of [b0.hc - 0.25, b0.hc, b0.hc + 0.25]) for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) { const r = evalAt(b0.x + i * 0.5, b0.z + j * 0.5, hc, fine); if (r.c < best.c) best = r; }
+  const ok = best.c < 0.08 && best.c < base.c * 0.88;   // obrys musí sedět a doladění musí opravdu pomoct
+  p.fix = { ok, c0: +base.c.toFixed(4), c: +best.c.toFixed(4), dx: +(best.x - p.x).toFixed(2), dz: +(best.z - p.z).toFixed(2), dpsi: +(best.ps / deg).toFixed(2), hc: best.hc };
+  if (ok) { p.x = best.x; p.z = best.z; p.yaw += best.ps; p.hc = best.hc; }
+}
+// mapa vzdáleností z panoramatu (equirect 512 × 256): první zásah povrchu pro každý směr; řádek r ↔ úhel ((r + ½)/H − ½)·π
+function panoDepth(p, S) {
+  const D = new Float32Array(PDW * PDH).fill(999), camY = gH(p.x, p.z) + p.hc;
+  for (let c = 0; c < PDW; c++) {
+    const g = p.yaw + ((c + 0.5) / PDW - 0.5) * 2 * Math.PI, dx = Math.sin(g), dz = -Math.cos(g); let m = -Math.PI / 2, r0 = 0;
+    for (let d = 0.5; d < 90 && r0 < PDH; d += d < 25 ? 0.25 : 0.75) {
+      const e = Math.atan2(S.at(p.x + dx * d, p.z + dz * d) - camY, d); if (e <= m) continue; m = e;
+      const r1 = Math.min(PDH, Math.floor((e / Math.PI + 0.5) * PDH + 0.5));
+      for (let r = r0; r < r1; r++) D[c + r * PDW] = d; r0 = Math.max(r0, r1);
+    }
+  }
+  return D;
+}
+function panoNote(t) { PANO.stat = t; const e = $('edPano'); if (e) { e.textContent = t; e.hidden = !t; } }
+async function panoLoad(ctx) {
+  if (PANO.busy || !ctx || !ctx.inv || !TERR) return;
+  PANO.busy = true; panoClear(); panoNote('Hledám fotky z ulice (Panoramax)…'); const ctx0 = houseCtx;
+  try {
+    const all = await panoFetch(ctx); PANO.all = all;
+    if (!all.length) { panoNote('Fotky z ulice tady zatím nejsou. Pokrytí je na panoramax.xyz, nafotit může kdokoli.'); return; }
+    const { sel } = panoSelect(ctx, all);
+    if (!sel.length) { panoNote(`Fotek z ulice je tu ${all.length}, ale žádná nevidí na domy zblízka.`); return; }
+    const imgs = [];
+    for (const pn of sel) {
+      const im = await getImg(pn.sd, 20000); if (!im) continue;
+      const cv = document.createElement('canvas'); cv.width = PANO_W; cv.height = PANO_H; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, PANO_W, PANO_H);
+      imgs.push({ p: pn, data: g.getImageData(0, 0, PANO_W, PANO_H) });
+    }
+    if (!imgs.length) { panoNote('Fotky z ulice se nepodařilo stáhnout.'); return; }
+    const S = panoSurface(ctx); PANO.S = S;
+    panoNote(`Ladím polohu ${imgs.length} fotek z ulice podle obrysu střech…`);
+    for (const it of imgs) { panoRefine(it.p, it.data, S); await panoYield(); }
+    // jedna jízda = stejně namontovaná kamera: jistou opravu natočení převezmou i fotky téže sekvence, kde obrys sám nerozhodl
+    for (const it of imgs) { const p = it.p; if (p.fix.ok) continue; const same = imgs.filter(o => o.p.seq && o.p.seq === p.seq && o.p.fix.ok).map(o => o.p.fix.dpsi).sort((a, b) => a - b);
+      if (same.length) { const dp = same[same.length >> 1]; p.yaw += dp * Math.PI / 180; p.fix.seq = dp; } }
+    for (const it of imgs) { it.dep = panoDepth(it.p, S); await panoYield(); }
+    panoNote('Skládám fasády sousedů z fotek z ulice…');
+    const walls = panoWalls(ctx, S), baked = await panoBake(walls, imgs);
+    await panoHeroHD(baked, imgs);
+    if (houseCtx !== ctx0) return;   // hráč mezitím otevřel jiný dům
+    const nW = panoUpload(baked);
+    PANO.sel = imgs.map(i => i.p); PANO.imgs = window.kaskada && window.kaskada._pano ? imgs : []; PANO.walls = nW; PANO.wallsAll = walls.filter(w => !w.own).length;
+    PANO.credits = [...new Set(PANO.sel.map(p => p.who))];
+    const fixed = PANO.sel.filter(p => p.fix && p.fix.ok).length;
+    const hs = Object.keys(PANO.hero).length;
+    panoNote(`Fotky z ulice: ${nW} ${nW === 1 ? 'zeď' : nW < 5 ? 'zdi' : 'zdí'} sousedů ${nW === 1 ? 'má' : 'mají'} skutečnou fasádu z ${imgs.length} panoramat (${fixed} doladěno podle obrysu střech)${hs ? `, pro tvůj dům je fotka ${hs === 1 ? '1 strany' : hs + ' stran'} v „Fasády z fotek“` : ''}. Autoři: ${PANO.credits.join(', ')}, Panoramax, CC BY-SA 4.0.`);
+    syncEditor();
+    $('hPano').hidden = false; $('hPano').textContent = ` · fotky z ulice © ${PANO.credits.join(', ')} (Panoramax, CC BY-SA 4.0)`;
+  } catch (e) { console.warn('Panoramax', e); panoNote('Fotky z ulice se nepodařilo načíst (Panoramax nedostupný).'); }
+  finally { PANO.busy = false; }
+}
+// zdi k ofocení: hrany sousedů do 50 m a domu hráče; svisle od terénu po nejvyšší bod povrchu nad hranou (štít)
+function panoWalls(ctx, S) {
+  const out = [], add = (rings, own, side) => {
+    for (const ring of rings.slice(0, 1)) for (let i = 0; i + 1 < ring.length; i++) {
+      const [ax, az] = ring[i], [bx, bz] = ring[i + 1], dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 2) continue;
+      let nx = -dz / L, nz = dx / L; if (inPoly((ax + bx) / 2 + nx * 0.05, (az + bz) / 2 + nz * 0.05, rings)) { nx = -nx; nz = -nz; }
+      const tx = -nz, tz = nx, ua = ax * tx + az * tz, ub = bx * tx + bz * tz, [Ax, Az] = ua <= ub ? [ax, az] : [bx, bz];
+      let vt = -1e9, vb = 1e9;
+      for (let t = 0.3; t < L; t += 1) { const x = Ax + tx * t, z = Az + tz * t; vb = Math.min(vb, gH(x, z)); vt = Math.max(vt, S.at(x - nx * 0.9, z - nz * 0.9)); }
+      if (own) vt = Math.max(vt, H.info.roofMax || 6);
+      vb -= 0.3; vt += 0.4; if (vt - vb < 2.2) continue;
+      out.push({ nx, nz, c: Ax * nx + Az * nz, L, Ax, Az, tx, tz, vb, vt, own, side: own ? (Math.abs(nx) > Math.abs(nz) ? (nx > 0 ? '+x' : '-x') : (nz > 0 ? '+z' : '-z')) : null });
+    }
+  };
+  add(H.spec.poly, true);
+  for (const b of ctx.neighbors || []) { const r0 = b.rings[0]; let mx = 0, mz = 0; for (const [x, z] of r0) { mx += x; mz += z; } if (Math.hypot(mx / r0.length, mz / r0.length) < 55) add(b.rings, false); }
+  return out;
+}
+// bod zdi z panoramatu: platný jen zepředu, ne pod kamerou, se stejnou vzdáleností jako lidar a bez oblohy; vrací barvu (0–255) nebo null
+function panoSample(it, wx, wy, wz, nx, nz, out) {
+  const p = it.p, cy = gH(p.x, p.z) + p.hc, dx = wx - p.x, dy = wy - cy, dz = wz - p.z, d = Math.hypot(dx, dy, dz);
+  if (d < 2 || d > 45) return 0;
+  const fac = -(dx * nx + dz * nz) / d; if (fac < 0.2) return 0;
+  const el = Math.asin(dy / d); if (el < -0.42) return 0;
+  const u = (((0.5 + (Math.atan2(dx, -dz) - p.yaw) / (2 * Math.PI)) % 1) + 1) % 1, v = 0.5 + el / Math.PI;
+  const D = it.dep[Math.min(PDW - 1, Math.floor(u * PDW)) + Math.min(PDH - 1, Math.floor(v * PDH)) * PDW];
+  if (Math.abs(d - D) > 1.2 + 0.04 * d) return 0;
+  let cu = u, cv = 1 - v;
+  if (it.crop) { cu = (u - it.crop.u0) / it.crop.du; cv = (1 - v - it.crop.v0) / it.crop.dv; if (cu < 0 || cu > 1 || cv < 0 || cv > 1) return 0; }
+  const { data, width: W, height: Hh } = it.data, fx = cu * W - 0.5, fy = cv * Hh - 0.5, x0 = Math.floor(fx), y0 = Math.max(0, Math.min(Hh - 2, Math.floor(fy))), ax = fx - x0, ay = fy - y0;
+  for (let k = 0; k < 3; k++) {
+    const g = (x, y) => data[(((x % W) + W) % W + y * W) * 4 + k];
+    out[k] = (g(x0, y0) * (1 - ax) + g(x0 + 1, y0) * ax) * (1 - ay) + (g(x0, y0 + 1) * (1 - ax) + g(x0 + 1, y0 + 1) * ax) * ay;
+  }
+  if (out[2] - Math.max(out[0], out[1]) > 22 && out[2] > 90) return 0;   // obloha: zeď v modelu je tu vyšší než skutečná
+  return fac * fac / (1 + d * d / 150);
+}
+// narovnaná fotka zdi z nejlepšího panoramatu (díry z druhého); zeď bez dost platných pixelů zůstane procedurální
+const panoYield = () => new Promise(r => setTimeout(r, 0));   // dlouhý výpočet po kouskách, ať editor nezamrzne
+async function panoBake(walls, imgs) {
+  const PX = 22, c3 = [0, 0, 0], res = []; let k0 = 0;
+  for (const w of walls) {
+    if (++k0 % 4 === 0) await panoYield();
+    const score = imgs.map(it => { let s = 0, n = 0; for (let i = 0; i < 10; i++) for (let j = 0; j < 6; j++) { const u = w.L * (i + 0.5) / 10, y = w.vb + 1.2 + (w.vt - w.vb - 1.2) * (j + 0.5) / 6; s += panoSample(it, w.Ax + w.tx * u + w.nx * 0.05, y, w.Az + w.tz * u + w.nz * 0.05, w.nx, w.nz, c3); n++; } return s / n; });
+    const ord = score.map((s, i) => [s, i]).filter(t => t[0] > 0).sort((a, b) => b[0] - a[0]).slice(0, 2);
+    if (!ord.length || ord[0][0] < 0.02) continue;
+    const r = panoBakeWall(w, imgs, ord.map(t => t[1]), PX); if (r) res.push(r);
+  }
+  return res;
+}
+function panoBakeWall(w, imgs, order, PX) {
+  const c3 = [0, 0, 0];
+  {
+    const ord = order.map(k => [0, k]);
+    const Wp = Math.max(24, Math.min(w.own ? 900 : 512, Math.round(w.L * PX))), Hp = Math.max(24, Math.min(w.own ? 640 : 384, Math.round((w.vt - w.vb) * PX)));
+    const px = new Float32Array(Wp * Hp * 3), ok = new Uint8Array(Wp * Hp); let good = 0, tot = 0;
+    for (let y = 0; y < Hp; y++) for (let x = 0; x < Wp; x++) {
+      const u = w.L * (x + 0.5) / Wp, wy = w.vt - (w.vt - w.vb) * (y + 0.5) / Hp, wx = w.Ax + w.tx * u + w.nx * 0.05, wz = w.Az + w.tz * u + w.nz * 0.05, i = x + y * Wp;
+      for (const [, k] of ord) if (panoSample(imgs[k], wx, wy, wz, w.nx, w.nz, c3)) { px[i * 3] = c3[0]; px[i * 3 + 1] = c3[1]; px[i * 3 + 2] = c3[2]; ok[i] = 1; break; }
+      if (wy > w.vb + 1.2 && wy < w.vb + 6) { tot++; good += ok[i]; }
+    }
+    const frac = tot ? good / tot : 0;
+    if (frac < (w.own ? 0.35 : 0.55)) return null;
+    // nad skutečnou střechou (model je vyšší) fotka nic nemá: oříznout na nejvyšší řádek s aspoň čtvrtinou platných pixelů, výš zůstane omítka
+    let yTop = 0; for (; yTop < Hp - 8; yTop++) { let c = 0; for (let x = 0; x < Wp; x++) c += ok[x + yTop * Wp]; if (c >= Wp * 0.25) break; }
+    const H2 = Hp - yTop, px2 = px.subarray(yTop * Wp * 3), ok2 = ok.subarray(yTop * Wp), wc = yTop ? { ...w, vt0: w.vt0 ?? w.vt, vt: w.vt - (w.vt - w.vb) * yTop / Hp } : w;
+    panoFill(px2, ok2, Wp, H2);
+    return { w: wc, Wp, Hp: H2, px: px2, frac, pano: ord.map(t => t[1]) };
+  }
+}
+// dům hráče ostřeji: plné rozlišení panoramatu, ale jen výřez kolem stěny (celé hd by mělo desítky MB)
+async function panoHeroHD(baked, imgs) {
+  for (const b of baked) {
+    if (!b.w.own) continue;
+    const it = imgs[b.pano[0]], p = it.p; if (!p.hd) continue;
+    const w = { ...b.w, vt: b.w.vt }, cy = gH(p.x, p.z) + p.hc; let u0 = 1, u1 = 0, v0 = 1, v1 = 0;
+    for (let i = 0; i <= 8; i++) for (const yy of [w.vb, w.vt]) {
+      const x = w.Ax + w.tx * w.L * i / 8, z = w.Az + w.tz * w.L * i / 8, dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, yy - cy, dz);
+      const u = (((0.5 + (Math.atan2(dx, -dz) - p.yaw) / (2 * Math.PI)) % 1) + 1) % 1, v = 1 - (0.5 + Math.asin((yy - cy) / d) / Math.PI);
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    if (u1 - u0 > 0.5) continue;   // výřez přes šev fotky: nechat zmenšenou verzi
+    u0 = Math.max(0, u0 - 0.01); u1 = Math.min(1, u1 + 0.01); v0 = Math.max(0, v0 - 0.01); v1 = Math.min(1, v1 + 0.01);
+    const im = await getImg(p.hd, 30000); if (!im) continue;
+    const sw = (u1 - u0) * im.naturalWidth, sh = (v1 - v0) * im.naturalHeight, k = Math.min(1, 2400 / sw, 1600 / sh);
+    const cv = document.createElement('canvas'); cv.width = Math.max(8, Math.round(sw * k)); cv.height = Math.max(8, Math.round(sh * k));
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, u0 * im.naturalWidth, v0 * im.naturalHeight, sw, sh, 0, 0, cv.width, cv.height);
+    const hd = { p, dep: it.dep, data: g.getImageData(0, 0, cv.width, cv.height), crop: { u0, du: u1 - u0, v0, dv: v1 - v0 } };
+    const order = b.pano.map(k2 => imgs[k2]); order[0] = hd;
+    const r = panoBakeWall(b.w.vt0 ? { ...b.w, vt: b.w.vt0 } : b.w, order, order.map((_, i) => i), 55);
+    if (r) Object.assign(b, r);
+  }
+}
+// díry: pull–push (průměr z hrubších úrovní), aby zeď byla celistvá
+function panoFill(px, ok, W, H) {
+  let lv = [{ W, H, c: px, w: Float32Array.from(ok) }];
+  while (lv[lv.length - 1].W > 1 || lv[lv.length - 1].H > 1) {
+    const a = lv[lv.length - 1], W2 = Math.max(1, a.W >> 1), H2 = Math.max(1, a.H >> 1), c = new Float32Array(W2 * H2 * 3), wt = new Float32Array(W2 * H2);
+    for (let y = 0; y < a.H; y++) for (let x = 0; x < a.W; x++) { const i = x + y * a.W, j = Math.min(W2 - 1, x >> 1) + Math.min(H2 - 1, y >> 1) * W2, q = a.w[i]; if (!q) continue; wt[j] += q; for (let k = 0; k < 3; k++) c[j * 3 + k] += a.c[i * 3 + k] * q; }
+    for (let j = 0; j < W2 * H2; j++) if (wt[j]) { for (let k = 0; k < 3; k++) c[j * 3 + k] /= wt[j]; wt[j] = Math.min(1, wt[j]); }
+    lv.push({ W: W2, H: H2, c, w: wt });
+  }
+  for (let l = lv.length - 2; l >= 0; l--) {
+    const a = lv[l], b = lv[l + 1];
+    for (let y = 0; y < a.H; y++) for (let x = 0; x < a.W; x++) {   // hrubší úroveň bilineárně, ať díra nejsou kostičky
+      const i = x + y * a.W; if (a.w[i] >= 1) continue; const q = a.w[i];
+      const fx = Math.max(0, Math.min(b.W - 1, (x + 0.5) / 2 - 0.5)), fy = Math.max(0, Math.min(b.H - 1, (y + 0.5) / 2 - 0.5)), x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(b.W - 1, x0 + 1), y1 = Math.min(b.H - 1, y0 + 1), ax = fx - x0, ay = fy - y0;
+      for (let k = 0; k < 3; k++) { const g = (xx, yy) => b.c[(xx + yy * b.W) * 3 + k]; a.c[i * 3 + k] = a.c[i * 3 + k] * q + ((g(x0, y0) * (1 - ax) + g(x1, y0) * ax) * (1 - ay) + (g(x0, y1) * (1 - ax) + g(x1, y1) * ax) * ay) * (1 - q); }
+      a.w[i] = 1;
+    }
+  }
+}
+// atlas (police po řádcích) + tabulka zdí pro shader; zdi domu hráče do editoru fasád
+function panoUpload(baked) {
+  baked.sort((a, b) => b.Hp - a.Hp);
+  const A = PANO_ATLAS, col = new Uint8Array(A * A * 4), tab = new Float32Array(3 * PANO_WALLS * 4); let x = 0, y = 0, rowH = 0, n = 0;
+  PANO.hero = {};
+  for (const b of baked) {
+    if (b.w.own) {   // dům hráče: narovnaná fotka strany do editoru fasád (okna označí hráč nebo zůstanou na fotce)
+      const cv = document.createElement('canvas'); cv.width = b.Wp; cv.height = b.Hp; const g = cv.getContext('2d'), im = g.createImageData(b.Wp, b.Hp);
+      for (let i = 0; i < b.Wp * b.Hp; i++) { im.data[i * 4] = b.px[i * 3]; im.data[i * 4 + 1] = b.px[i * 3 + 1]; im.data[i * 4 + 2] = b.px[i * 3 + 2]; im.data[i * 4 + 3] = 255; }
+      g.putImageData(im, 0, 0);
+      const cv2 = document.createElement('canvas'); cv2.width = b.Wp; cv2.height = b.Hp; const g2 = cv2.getContext('2d'); g2.translate(b.Wp, 0); g2.scale(-1, 1); g2.drawImage(cv, 0, 0);   // jak ji vidí člověk před domem
+      if (!PANO.hero[b.w.side] || PANO.hero[b.w.side].frac < b.frac) PANO.hero[b.w.side] = { cv: cv2, frac: b.frac, vb: b.w.vb, vt: b.w.vt, L: b.w.L, w: b.w };
+      continue;
+    }
+    if (n >= PANO_WALLS) break;
+    if (x + b.Wp > A) { x = 0; y += rowH + 2; rowH = 0; }
+    if (y + b.Hp > A) continue;
+    for (let j = 0; j < b.Hp; j++) for (let i = 0; i < b.Wp; i++) { const s0 = (i + j * b.Wp) * 3, d0 = ((x + i) + (A - 1 - (y + j)) * A) * 4; col[d0] = b.px[s0]; col[d0 + 1] = b.px[s0 + 1]; col[d0 + 2] = b.px[s0 + 2]; col[d0 + 3] = 255; }
+    const w = b.w;   // řádek 0: rovina, 1: počátek a svislý rozsah, 2: výřez atlasu (v textuře je řádek 0 dole, fotka shora dolů)
+    tab.set([w.nx, w.nz, w.c, w.L], (0 + n * 3) * 4); tab.set([w.Ax, w.Az, w.vb, w.vt], (1 + n * 3) * 4);
+    tab.set([(x + 0.5) / A, (A - y - b.Hp + 0.5) / A, (b.Wp - 1) / A, (b.Hp - 1) / A], (2 + n * 3) * 4);
+    x += b.Wp + 2; rowH = Math.max(rowH, b.Hp); n++;
+  }
+  if (panoU.uWallN.value) { panoU.uWallT.value.dispose(); panoU.uAtlas.value.dispose(); }
+  const t = new THREE.DataTexture(tab, 3, PANO_WALLS, THREE.RGBAFormat, THREE.FloatType); t.needsUpdate = true;
+  const a = new THREE.DataTexture(col, A, A); a.colorSpace = THREE.SRGBColorSpace; a.minFilter = THREE.LinearMipmapLinearFilter; a.generateMipmaps = true; a.anisotropy = 8; a.needsUpdate = true;
+  panoU.uWallT.value = t; panoU.uAtlas.value = a; panoU.uWallN.value = n;
+  return n;
+}
+function panoClear() {
+  if (panoU.uWallN.value) { panoU.uWallT.value.dispose(); panoU.uAtlas.value.dispose(); }
+  panoBlankU();
+  Object.assign(PANO, { all: [], sel: [], imgs: [], credits: [], S: null, hero: {}, walls: 0 }); panoNote(''); const h = $('hPano'); if (h) h.hidden = true;
+}
 // ---------- okolí ze skenu z mobilu: Gaussian splat (Scaniverse, Polycam, Luma → .spz/.ply) přes Spark (MIT), knihovna až na vyžádání ----------
 // Splat je fotoreálné pozadí, ne geometrie (akademie 3d/12): nedá se bourat a nemá kolize. Skutečný dům ze skenu vyřízne krabice,
 // na jeho místě stojí voxelový dům. Vymyšlení sousedé, stromy, ploty a lampy v dosahu skenu zmizí.
@@ -5812,6 +6154,7 @@ function houseUpdate(rdt, dt) {
   if (H.state === 'off') return;
   TREE.time.value += rdt;
   if (SCAN.mesh) SCAN.mesh.recolor.setScalar(clamp(1 / (renderer.toneMappingExposure || 1), 0.25, 4));
+  panoU.uPanoK.value = clamp(1 / (renderer.toneMappingExposure || 1), 0.25, 4);
   if (H.state === 'play') {
     H.gt += dt;
     if (H.comboT > 0) { H.comboT -= rdt; if (H.comboT <= 0) { H.comboN = 0; H.mult = 1; renderHScore(); } }
@@ -6039,7 +6382,7 @@ function houseEnter() {
 }
 function houseLeave() {
   if (S.kind !== 'house') return;
-  scanClear(); if (SCAN.spark) SCAN.spark.visible = false;
+  scanClear(); if (SCAN.spark) SCAN.spark.visible = false; panoClear();
   H.state = 'off'; houseClear(); terrainOff(); houseRoot.visible = false; ambU.uAmbK.value = 0; setSun(SUN0); H.meterT = 0; slingIsland.visible = true;
   camera.fov = 45; camera.near = 0.1; camera.clearViewOffset(); camera.updateProjectionMatrix(); dustScale();
   key.shadow.mapSize.set(2048, 2048); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; }
@@ -6055,7 +6398,7 @@ function houseOpen(spec, ctx) {
   houseEnter();
   for (const f of Object.values((H.spec && H.spec.facades) || {})) if (f.tex) f.tex.dispose();
   H.spec = { ...spec }; houseCtx = ctx;
-  scanClear(); SCAN.bytes = null; SCAN.top = false;
+  scanClear(); SCAN.bytes = null; SCAN.top = false; panoClear();
   try { houseBuild(H.spec); }
   catch (e) { console.warn(e); houseLeave(); throw e; }
   houseContext(ctx);
@@ -6183,6 +6526,14 @@ function fasOpen(side, im) {
   $('fasTitle').textContent = FAS_NAMES[side] || 'Stěna'; $('fasDel').hidden = !f;
   $('fasEd').hidden = false; $('fasEd').focus(); fasLayout(); fasDraw(true);
 }
+// fotka strany domu z ulice (Panoramax): už narovnaná, rohy = země (y 0) a okap; okna a dveře označí hráč
+function fasHero(sd) {
+  const h = PANO.hero[sd], { width: W, height: Hp } = h.cv, yOf = Y => (h.vt - Y) / (h.vt - h.vb) * Hp, eave = H.info.eave || 3;
+  fasOpen(sd, h.cv);
+  FAS.corners = [[0, yOf(0)], [W, yOf(0)], [W, yOf(eave)], [0, yOf(eave)]];
+  $('fasInfo').textContent = 'Fotka z ulice (Panoramax), už narovnaná. Označ okna a dveře, nebo rovnou Použít.';
+  fasDraw(true);
+}
 function fasLayout() {
   const dpr = Math.min(2, devicePixelRatio || 1), { cv } = FAS.src, sc = $('fasSrc'), oc = $('fasOut');
   const maxW = Math.max(300, Math.min(760, innerWidth - 560)), maxH = Math.max(240, innerHeight - 160), s = Math.min(maxW / cv.width, maxH / cv.height);
@@ -6287,7 +6638,9 @@ function setupFacades() {
   addEventListener('resize', () => { if (!$('fasEd').hidden) { fasLayout(); fasDraw(true); } });
   $('edFac').addEventListener('click', e => {
     const b = e.target.closest('[data-s]'); if (!b) return; const sd = b.dataset.s;
-    if ((H.spec.facades || {})[sd]) fasOpen(sd, null); else { FAS.pend = sd; $('edFacFile').value = ''; $('edFacFile').click(); }
+    if ((H.spec.facades || {})[sd]) fasOpen(sd, null);
+    else if (PANO.hero && PANO.hero[sd]) fasHero(sd);
+    else { FAS.pend = sd; $('edFacFile').value = ''; $('edFacFile').click(); }
   });
   $('edFacFile').addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if (!f || !FAS.pend) return;
@@ -6388,6 +6741,7 @@ async function goPlace(P) {
     try { await enrichCZ(spec, ctx, placeStatus); } catch (e) { console.warn('Data ČÚZK se nepodařilo načíst', e); }
   }
   houseOpen(spec, ctx);
+  if (await canReachMaps()) panoLoad(ctx);   // fotky z ulice dobíhají na pozadí, editor už běží
 }
 function placeStatus(msg) { $('mapHint').textContent = msg; if (!$('steps').hidden) $('drop').textContent = msg; }
 function restoreCampaign() { buildLevel(S.level); setLook('campaign'); S.kind = 'campaign'; cam.mode = 'title'; showAimGizmos(false); ballMesh.position.copy(SLING); ballMesh.visible = true; }
@@ -6569,7 +6923,7 @@ window.kaskada = {
     fly(on) { PL.fly = on; renderFly(); }, play() { housePlay(false); }, edit() { houseEdit(); }, end() { houseEnd(); }, pause() { housePause(); }, resume() { houseResume(); },
     spec: () => H.spec, set(k, v) { H.spec[k] = v; editChanged(); },
     open(spec) { houseOpen(spec || DEMO_SPEC, demoContext()); },
-    async openCZ(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, [lat, lon]); const t = performance.now(); await enrichCZ(spec, ctx, m => console.log(m)); houseOpen(spec, ctx); return { ms: Math.round(performance.now() - t), spec: { ...spec, poly: undefined }, trees: trunks.count, treeStats: H.treeStats, sun: H.sunFit }; }, openOSM(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, lat != null ? [lat, lon] : null); houseOpen(spec, ctx); },
+    async openCZ(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, [lat, lon]); const t = performance.now(); await enrichCZ(spec, ctx, m => console.log(m)); houseOpen(spec, ctx); if (window.kaskada._pano) await panoLoad(ctx); return { ms: Math.round(performance.now() - t), spec: { ...spec, poly: undefined }, trees: trunks.count, treeStats: H.treeStats, sun: H.sunFit }; }, openOSM(text, lat, lon) { const data = parseOSM(text); const { spec, ctx } = houseFromOSM(data, lat != null ? [lat, lon] : null); houseOpen(spec, ctx); },
     orthoDebug(R = 22, px = 768) {   // výřez ortofota kolem domu: půdorys (červeně), posunutý o náklon v okapu (žlutě) a hřebeni (azurově)
       const c = houseCtx; if (!c || !c.ortho) return null;
       const A2 = ORTHO_U.a2.value, k = c.ortho.width / (2 * A2), cv = document.createElement('canvas'); cv.width = cv.height = px;
@@ -6632,6 +6986,10 @@ window.kaskada = {
     scanAuto() { SCAN.al = scanAuto(); scanApply(true); return window.kaskada.house.scanInfo(); },
     scanInfo: () => SCAN.mesh ? { n: SCAN.n, pts: SCAN.pts.length / 3, al: SCAN.al, conf: +SCAN.conf.toFixed(3), fit: +(SCAN.fit || 0).toFixed(3), up: SCAN.upScore, cover: SCAN.cover ? SCAN.cover.size : 0 } : null,
     scanTop(on) { SCAN.top = on; },
+    panoHero(sd, apply) { if (!PANO.hero || !PANO.hero[sd]) return false; fasHero(sd); if (apply) fasApply(); return true; },
+    panoInfo: () => ({ walls: PANO.walls, wallsAll: PANO.wallsAll, hero: Object.fromEntries(Object.entries(PANO.hero || {}).map(([k, v]) => [k, +v.frac.toFixed(2)])), all: PANO.all.length, sel: PANO.sel.map(p => ({ id: p.id, sd: p.sd, x: +p.x.toFixed(1), z: +p.z.toFixed(1), yaw: +(p.yaw * 180 / Math.PI).toFixed(1), hc: p.hc, date: p.date, who: p.who, fix: p.fix })), stat: PANO.stat }),
+    panoSky(i, x0, z0, hc0) { const it = PANO.imgs[i]; if (!it) return null; const x = x0 ?? it.p.x, z = z0 ?? it.p.z, img = panoSkyImg(it.data), mod = panoSkyModel(PANO.S, x, z, gH(x, z) + (hc0 ?? it.p.hc)); return { img: Array.from(img).map(v => +(v * 57.3).toFixed(1)), mod: Array.from(mod).map(v => +(v * 57.3).toFixed(1)), yaw: it.p.yaw * 57.3 }; },
+    panoView(i, yawOff = 0, pitch = 0) { const p = PANO.sel[i]; if (!p) return false; H.state = 'play'; PL.fly = true; PL.p.set(p.x, gH(p.x, p.z) + p.hc - 1.6, p.z); PL.yaw = yawOff; PL.pitch = pitch; return true; },
     scanBox() { const P = SCAN.pts, q = (k, f) => quantile(P.filter((v, i) => i % 3 === k), f); return [0, 1, 2].map(k => [q(k, 0.05), q(k, 0.5), q(k, 0.95)].map(v => +v.toFixed(2))); },
     scanSet(al) { Object.assign(SCAN.al, al); scanApply(false); return SCAN.al; },
     score: () => ({ score: H.score, mult: H.mult, comboN: H.comboN, chain: H.chain, bizarre: H.bizarre, stat: H.stat, rank: hRank() }),

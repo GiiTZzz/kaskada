@@ -8,6 +8,10 @@ map a ty ho z první osoby rozebereš na cihly, prkna a peří.
 - Po spuštění se ukáže mapa. Najdi adresu nebo klikni na svůj dům a dej **Bourat tento dům**.
 - V editoru doladíš patra, střechu a barvy. Ke každé straně domu můžeš nahrát fotku stěny: přetáhneš
   4 rohy, tažením označíš okna a dveře a hra je vyřeže přesně tam, kde jsou na fotce.
+- **Fotky z ulice:** kde jsou na [Panoramax](https://panoramax.xyz) (otevřená obdoba Street View) 360° fotky, hra je k domu
+  sama stáhne, doladí jejich polohu podle obrysu střech proti výškopisu a sousedům dá skutečné fasády. Pro tvůj dům nabídne
+  v „Fasády z fotek“ už narovnanou fotku strany, okna stačí označit. Pokrytí je zatím hlavně ve větších městech, nafotit
+  může kdokoli.
 - **Fotorealistické okolí ze skenu:** v aplikaci Scaniverse (zdarma, iPhone i Android) pomalu obejdi dům a kus ulice
   (krokem do strany, ne otáčením na místě), exportuj sken jako SPZ a přetáhni ho v editoru do pole „Okolí ze skenu“.
   Hra ho sama zarovná k domu a sousedům z mapy, skutečný dům ze skenu nahradí tím na bourání a vymyšlené okolí v dosahu
@@ -55,4 +59,6 @@ nenačtou a hra nabídne jen tlačítko na plnou verzi.
   a `models/SOURCES.md`). Modely jsou rozdělené na díly a odlehčené v Blenderu.
 - Stromy `models/strom_*.glb`: vygenerované knihovnou [ez-tree](https://github.com/dgreenheck/ez-tree) (MIT,
   © Daniel Greenheck, licence v `models/LICENSE-ez-tree.txt`).
+- Fotky z ulice: autoři na [Panoramax](https://panoramax.xyz), CC BY-SA 4.0 (jména autorů hra ukáže v editoru a ve hře);
+  stahují se až v prohlížeči hráče a nikam se neukládají.
 - three.js (MIT), Rapier (Apache-2.0), cannon-es (MIT), Leaflet (BSD-2-Clause), Spark pro skeny (MIT, načte se jen se skenem).
