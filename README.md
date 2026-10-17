@@ -8,6 +8,10 @@ map a ty ho z první osoby rozebereš na cihly, prkna a peří.
 - Po spuštění se ukáže mapa. Najdi adresu nebo klikni na svůj dům a dej **Bourat tento dům**.
 - V editoru doladíš patra, střechu a barvy. Ke každé straně domu můžeš nahrát fotku stěny: přetáhneš
   4 rohy, tažením označíš okna a dveře a hra je vyřeže přesně tam, kde jsou na fotce.
+- **Fotorealistické okolí ze skenu:** v aplikaci Scaniverse (zdarma, iPhone i Android) pomalu obejdi dům a kus ulice
+  (krokem do strany, ne otáčením na místě), exportuj sken jako SPZ a přetáhni ho v editoru do pole „Okolí ze skenu“.
+  Hra ho sama zarovná k domu a sousedům z mapy, skutečný dům ze skenu nahradí tím na bourání a vymyšlené okolí v dosahu
+  skenu schová. Posuvníky (s pohledem shora) zarovnání doladíš. Sken zůstane uložený jen v tvém prohlížeči.
 - `W A S D` chůze, myš rozhlížení, levé tlačítko nářadí, `1`–`6` nebo kolečko výběr nářadí
 - kladivo (omítka, cihly, dřevo), perlík (i beton; podrž tlačítko a rána je silnější), sbíječka (všechno, přesně),
   nálože (`E` odpálí), bourací koule, pila (úzký řez skrz celou zeď: obkroužený kus vypadne)
@@ -51,4 +55,4 @@ nenačtou a hra nabídne jen tlačítko na plnou verzi.
   a `models/SOURCES.md`). Modely jsou rozdělené na díly a odlehčené v Blenderu.
 - Stromy `models/strom_*.glb`: vygenerované knihovnou [ez-tree](https://github.com/dgreenheck/ez-tree) (MIT,
   © Daniel Greenheck, licence v `models/LICENSE-ez-tree.txt`).
-- three.js (MIT), Rapier (Apache-2.0), cannon-es (MIT), Leaflet (BSD-2-Clause).
+- three.js (MIT), Rapier (Apache-2.0), cannon-es (MIT), Leaflet (BSD-2-Clause), Spark pro skeny (MIT, načte se jen se skenem).

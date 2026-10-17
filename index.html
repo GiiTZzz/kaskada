@@ -98,6 +98,9 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 .drop{display:grid;place-items:center;text-align:center;min-height:96px;padding:14px;border-radius:12px;border:2px dashed rgba(255,194,58,.55);color:var(--ink);font:600 15px/1.4 var(--f-ui);cursor:pointer;background:rgba(255,194,58,.05)}
 .drop.over{background:rgba(255,194,58,.16);border-color:var(--hazard)}
 .drop:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.drop.small{min-height:58px;font-size:13px;pointer-events:auto}
+.scanCtl{display:grid;gap:6px}
+.scanCtl input[type=range]{pointer-events:auto;width:100%}
 .err{font:600 14px/1.4 var(--f-ui);color:#ff8f7f;margin:0;max-width:56ch}
 .mapbox{display:grid;gap:12px;width:min(620px,100%);text-align:left}
 .srow{display:flex;gap:8px}
@@ -243,6 +246,19 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
   <div class="field"><span class="lab">Střešní krytina</span><div class="sw" id="edRoofCol"></div><button type="button" class="segb" id="edRoofOrtho" hidden aria-pressed="false">Z leteckého snímku</button></div>
   <div class="field"><span class="lab">Okna a dveře</span><div class="sw" id="edFrames"></div></div>
   <div class="field"><span class="lab">Fasády z fotek</span><div class="seg" id="edFac"><button type="button" class="segb" data-s="+z" aria-pressed="false">Čelo</button><button type="button" class="segb" data-s="-x" aria-pressed="false">Vlevo</button><button type="button" class="segb" data-s="+x" aria-pressed="false">Vpravo</button><button type="button" class="segb" data-s="-z" aria-pressed="false">Zadní</button></div><input type="file" id="edFacFile" accept="image/*" hidden><span class="fine">Vyfoť celou stěnu i se štítem, nahraj ji a přetáhni rohy. Okna a dveře se vyřežou tam, kde je označíš.</span></div>
+  <div class="field" id="edScanRow"><span class="lab">Okolí ze skenu z mobilu</span>
+    <div class="drop small" id="edScanDrop" tabindex="0" role="button" aria-describedby="edScanNote">Přetáhni sem sken okolí (.spz nebo .ply), nebo klikni</div>
+    <input type="file" id="edScanFile" accept=".spz,.ply,.splat,.ksplat" hidden>
+    <div class="scanCtl" id="edScanCtl" hidden>
+      <div class="seg"><button type="button" class="segb" id="edScanAuto">Zarovnat k domu</button><button type="button" class="segb" id="edScanFlip">Převrátit</button><button type="button" class="segb" id="edScanTop" aria-pressed="false">Pohled shora</button><button type="button" class="segb" id="edScanOff">Odebrat</button></div>
+      <label class="lab" for="edScanR">Otočení <b id="edScanRV">0°</b></label><input type="range" id="edScanR" min="-180" max="180" step="0.5">
+      <label class="lab" for="edScanX">Posun do stran <b id="edScanXV">0 m</b></label><input type="range" id="edScanX" min="-60" max="60" step="0.05">
+      <label class="lab" for="edScanZ">Posun dopředu a dozadu <b id="edScanZV">0 m</b></label><input type="range" id="edScanZ" min="-60" max="60" step="0.05">
+      <label class="lab" for="edScanY">Výška <b id="edScanYV">0 m</b></label><input type="range" id="edScanY" min="-6" max="6" step="0.02">
+      <label class="lab" for="edScanS">Měřítko <b id="edScanSV">1,00×</b></label><input type="range" id="edScanS" min="0.6" max="1.6" step="0.005">
+    </div>
+    <p class="fine" id="edScanNote">Fotorealistické okolí: v aplikaci Scaniverse (zdarma, iPhone i Android) pomalu obejdi dům a kus ulice, krokem do strany, ne otáčením na místě, ideálně pod mrakem. Pak Sdílet → Exportovat model → SPZ a soubor přetáhni sem. Skutečný dům ze skenu zmizí a na jeho místě bude ten na bourání.</p>
+  </div>
   <div class="field" id="edSunRow" hidden><span class="lab">Slunce</span><div class="seg" id="edSun"><button type="button" class="segb" data-v="1">Jako na snímku</button><button type="button" class="segb" data-v="0">Do čela domu</button></div></div>
   <p class="err" id="edErr" role="alert" hidden></p>
   <div class="row"><button class="btn" id="edGo">Jdu bourat</button><button class="link" id="edBack">Zpět</button></div>
@@ -348,7 +364,8 @@ kbd{font:600 11px var(--f-ui);padding:2px 6px;border-radius:4px;background:rgba(
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+  "@sparkjsdev/spark": "https://cdn.jsdelivr.net/npm/@sparkjsdev/spark@2.3.1/dist/spark.module.js"
 } }
 </script>
 <script type="module">
@@ -1128,7 +1145,7 @@ gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings
 composer.addPass(gtao);
 // GTAO kreslí normály a hloubku přes MeshNormalMaterial bez alpha testu: listí a impostory stromů by v něm byly plné
 // obdélníky a v mlze u obzoru svítily jako krabice. Stromy z tohoto průchodu vyřaď (stejně jako GTAO sám vyřazuje body).
-{ const hide = gtao._overrideVisibility.bind(gtao); gtao._overrideVisibility = function () { hide(); for (const m of [...TREE.meshes, ...STREET.meshes.filter(f => f.userData.noAO)]) if (m.visible) { m.visible = false; this._visibilityCache.push(m); } }; }
+{ const hide = gtao._overrideVisibility.bind(gtao); gtao._overrideVisibility = function () { hide(); for (const m of [...TREE.meshes, ...STREET.meshes.filter(f => f.userData.noAO), ...(SCAN.spark ? [SCAN.spark] : [])]) if (m.visible) { m.visible = false; this._visibilityCache.push(m); } }; }
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.75, 0.55, 1.15);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -2127,7 +2144,7 @@ function plantTrees(data, proj, s, A2, all, r, o = {}) {
   const add = (mx, mz) => {
     if (pts.length >= 650) return;
     const x = mx * s, z = mz * s + zc;
-    if (Math.abs(x) > A2 - 1 || Math.abs(z - zc) > A2 - 1 || corr(x - 0.8, x + 0.8, z - 0.8, z + 0.8) || blocked(mx, mz)) return;
+    if (Math.abs(x) > A2 - 1 || Math.abs(z - zc) > A2 - 1 || corr(x - 0.8, x + 0.8, z - 0.8, z + 0.8) || blocked(mx, mz) || (o.skip && o.skip(x, z))) return;
     pts.push([x, z, (6.5 + r() * 7) * s]);
   };
   for (const t of data.trees) { const [mx, mz] = proj(t); add(mx, mz); }
@@ -2333,7 +2350,7 @@ function fenceRuns(parcels, all, keep) {
       const dx = (bx - ax) / L, dz = (bz - az) / L, n = Math.max(1, Math.round(L)); let start = -1;
       for (let k = 0; k <= n; k++) {
         const t0 = k / n, mx = ax + (bx - ax) * (t0 + 0.5 / n), mz = az + (bz - az) * (t0 + 0.5 / n);
-        const ok = k < n && Math.abs(mx) < 128 && Math.abs(mz) < 128 && !(mx > keep[0] && mx < keep[1] && mz > keep[2] && mz < keep[3]) && onRoad(mx, mz, dx, dz) && !nearHouse(mx, mz);
+        const ok = k < n && Math.abs(mx) < 128 && Math.abs(mz) < 128 && !(mx > keep[0] && mx < keep[1] && mz > keep[2] && mz < keep[3]) && !(keep.skip && keep.skip(mx, mz)) && onRoad(mx, mz, dx, dz) && !nearHouse(mx, mz);
         if (ok && start < 0) start = k;
         if (!ok && start >= 0) { if (k - start >= 1) runs.push({ a: [ax + (bx - ax) * start / n, az + (bz - az) * start / n], b: [ax + (bx - ax) * k / n, az + (bz - az) * k / n], kind, seed: pi }); start = -1; }
       }
@@ -2387,7 +2404,7 @@ function streetFurniture(ctx, roads, keep) {
       const dx = (bx - ax) / L, dz = (bz - az) / L;
       for (let t = acc; t < L; t += 32) {
         const x = ax + dx * t - dz * 3.6, z = az + dz * t + dx * 3.6; acc = t + 32 - L;
-        if (Math.abs(x) > 125 || Math.abs(z) > 125 || (x > keep[0] && x < keep[1] && z > keep[2] && z < keep[3])) { prev = null; continue; }
+        if (Math.abs(x) > 125 || Math.abs(z) > 125 || (x > keep[0] && x < keep[1] && z > keep[2] && z < keep[3]) || (keep.skip && keep.skip(x, z))) { prev = null; continue; }
         if (ctx.all.some(b => x > b.box[0] - 1.5 && x < b.box[1] + 1.5 && z > b.box[2] - 1.5 && z < b.box[3] + 1.5 && (inPoly(x, z, b.rings) || edgeDist(x, z, b.rings) < 1.2))) { prev = null; continue; }
         if (poles.some(p => Math.hypot(p.x - x, p.z - z) < 18)) { prev = null; continue; }
         const p = { x, z, dx: dz, dz: -dx, prev }; poles.push(p); prev = p;
@@ -4192,13 +4209,15 @@ function houseContext(ctx) {
     ORTHO_U.detL.value.set(lum(photoAvg('asphalt')), lum(photoAvg('grass'), [0.72, 0.98, 0.5]), lum(photoAvg('pavers')));
   } else { ORTHO_U.tex.value = new THREE.DataTexture(new Uint8Array([128, 128, 128, 0]), 1, 1); ORTHO_U.tex.value.needsUpdate = true; ORTHO_U.k.value = 0; ORTHO_U.roof.value = 0; ORTHO_U.lean.value.set(0, 0); }
   const roads = ctx.data.roads.filter(rd => !['footway', 'path', 'steps', 'cycleway', 'track', 'bridleway'].includes(rd.kind)).map(rd => rd.pts.map(ctx.proj));
-  buildContext(ctx.neighbors, 1, r, 0, { roofOf: ctx.hf ? b => neighborRoof(b, ctx.hf, ctx.sampler) : null, orthoRoof: !!ctx.ortho, ground: TERR.on, roads });
+  const inScan = SCAN.cover ? scanCovers : null, cen = b => { const r0 = b.rings[0]; let x = 0, z = 0; for (const p of r0) { x += p[0]; z += p[1]; } return [x / r0.length, z / r0.length]; };
+  const nbs = inScan ? ctx.neighbors.filter(b => !inScan(...cen(b))) : ctx.neighbors;   // sousedé, které ukazuje sken, se nestaví
+  buildContext(nbs, 1, r, 0, { roofOf: ctx.hf ? b => neighborRoof(b, ctx.hf, ctx.sampler) : null, orthoRoof: !!ctx.ortho, ground: TERR.on, roads });
   const [x0, x1, z0, z1] = H.info.bbox;
-  const sp = H.spawn ? H.spawn.p : V3(), keepOut = (x, z) => (x > x0 - 2.5 && x < x1 + 2.5 && z > z0 - 2.5 && z < z1 + 2.5) || Math.hypot(x - sp.x, z - sp.z) < 3.5;
+  const sp = H.spawn ? H.spawn.p : V3(), keepOut = (x, z) => (x > x0 - 2.5 && x < x1 + 2.5 && z > z0 - 2.5 && z < z1 + 2.5) || Math.hypot(x - sp.x, z - sp.z) < 3.5 || (inScan && inScan(x, z));
   const tp = ctx.hf || ctx.sampler ? findTrees(ctx.hf, ctx.sampler, ctx.all, ctx.hf ? ctx.hf.half - 2 : A2 - 2, keepOut) : null;
   if (tp) drawTrees(tp, r);   // skutečné stromy z výškopisu a ortofota
-  else plantTrees(ctx.data, ctx.proj, 1, A2, ctx.all, r, { zc: 0, corridor: (a, b, c, d) => b > x0 - 7 && a < x1 + 7 && d > z0 - 7 && c < z1 + 9 });
-  streetFurniture(ctx, roads, [x0 - 8, x1 + 8, z0 - 8, Math.max(z1 + 8, sp.z + 3)]);
+  else plantTrees(ctx.data, ctx.proj, 1, A2, ctx.all, r, { zc: 0, corridor: (a, b, c, d) => b > x0 - 7 && a < x1 + 7 && d > z0 - 7 && c < z1 + 9, skip: inScan });
+  streetFurniture(ctx, roads, Object.assign([x0 - 8, x1 + 8, z0 - 8, Math.max(z1 + 8, sp.z + 3)], { skip: inScan }));
   if (ctx.ortho) {
     const og = orthoGround(ctx, tp || []);
     for (const [u, cv, cs] of [['bld', og.mask, THREE.NoColorSpace], ['fill', og.fill, THREE.SRGBColorSpace]]) {
@@ -4206,6 +4225,195 @@ function houseContext(ctx) {
       ORTHO_U[u].value = new THREE.CanvasTexture(cv); ORTHO_U[u].value.colorSpace = cs;
     }
   }
+}
+// ---------- okolí ze skenu z mobilu: Gaussian splat (Scaniverse, Polycam, Luma → .spz/.ply) přes Spark (MIT), knihovna až na vyžádání ----------
+// Splat je fotoreálné pozadí, ne geometrie (akademie 3d/12): nedá se bourat a nemá kolize. Skutečný dům ze skenu vyřízne krabice,
+// na jeho místě stojí voxelový dům. Vymyšlení sousedé, stromy, ploty a lampy v dosahu skenu zmizí.
+const SCAN = { mod: null, spark: null, mesh: null, edit: null, box: null, pts: null, n: 0, name: '', al: null, cover: null, conf: 0, top: false, busy: false };
+async function scanLib() { return (SCAN.mod ||= await import('@sparkjsdev/spark')); }
+function scanClear() {
+  if (SCAN.mesh) { scene.remove(SCAN.mesh); try { SCAN.mesh.dispose(); } catch (e) { /* starší verze bez dispose */ } }
+  if (SCAN.edit) scene.remove(SCAN.edit);
+  Object.assign(SCAN, { mesh: null, edit: null, box: null, pts: null, n: 0, name: '', al: null, cover: null, conf: 0 });
+}
+async function scanLoad(bytes, name, al) {
+  const sp = await scanLib();
+  scanClear();
+  if (!SCAN.spark) { SCAN.spark = new sp.SparkRenderer({ renderer }); scene.add(SCAN.spark); }
+  SCAN.spark.visible = true;
+  const mesh = new sp.SplatMesh({ fileBytes: bytes, fileName: name });
+  await mesh.initialized;
+  // vzorek středů pro zarovnání: nanejvýš ~150 tisíc bodů, bez skoro průhledných
+  const n = mesh.numSplats || 0, step = Math.max(1, Math.floor(n / 150000)), pts = [];
+  mesh.forEachSplat((k, c, sc, q, o) => { if (k % step === 0 && o > 0.25) pts.push(c.x, c.y, c.z); });
+  if (pts.length < 300) { try { mesh.dispose(); } catch (e) { /* nic */ } throw userErr('Sken je prázdný nebo se nedá přečíst. Exportuj ho ze Scaniverse jako SPZ nebo PLY.'); }
+  Object.assign(SCAN, { mesh, pts: new Float32Array(pts), n, name });
+  scene.add(mesh);
+  SCAN.al = al || scanAuto();
+  scanApply(true);
+  return SCAN.al;
+}
+const quantile = (a, q) => { const b = Float32Array.from(a).sort(); return b[Math.min(b.length - 1, Math.max(0, Math.floor(q * (b.length - 1))))]; };
+// otočení ve vodorovné rovině stejně jako THREE makeRotationY
+const rotY = (t, x, z) => [x * Math.cos(t) + z * Math.sin(t), -x * Math.sin(t) + z * Math.cos(t)];
+// nahoře: po buňkách 2 × 2 m je ve správné orientaci hustá vrstva u spodku buňky (zem), u převráceného skenu u vršku; funguje i ve svahu
+function scanCells(flip) {
+  const P = SCAN.pts, N = P.length / 3, m = new Map();
+  for (let i = 0; i < N; i++) { const y = flip ? -P[i * 3 + 1] : P[i * 3 + 1], z = flip ? -P[i * 3 + 2] : P[i * 3 + 2], k = Math.floor(P[i * 3] / 2) * 100003 + Math.floor(z / 2); let a = m.get(k); if (!a) m.set(k, a = []); a.push(y); }
+  const floor = new Map(); let lo = 0, hi = 0;
+  for (const [k, a] of m) {
+    if (a.length < 12) continue;
+    a.sort((p, q) => p - q); const f = a[Math.floor(a.length * 0.03)], c = a[Math.floor(a.length * 0.97)];
+    for (const y of a) { if (Math.abs(y - f) < 0.3) lo++; if (Math.abs(y - c) < 0.3) hi++; }
+    floor.set(k, f);
+  }
+  return { flip, score: (lo - hi) / N, floor };
+}
+const cellKey = (x, z) => Math.floor(x / 2) * 100003 + Math.floor(z / 2);
+// zarovnání: nahoru podle země, pak obrysy domu a sousedů z mapy proti stěnám ve skenu (výška 1,6–3,2 m nad zemí)
+function scanAuto(flipFix) {
+  const ups = flipFix == null ? [scanCells(0), scanCells(1)] : [scanCells(flipFix)];
+  const U = ups.reduce((a, b) => b.score > a.score ? b : a), P = SCAN.pts, N = P.length / 3;
+  SCAN.upScore = ups.map(u => +u.score.toFixed(3));
+  const sx = [], sz = [], fl = [...U.floor.values()].sort((p, q) => p - q), gy0 = fl.length ? fl[fl.length >> 1] : 0;
+  for (let i = 0; i < N; i++) {   // stěny: 1,6–3,2 m nad zemí své buňky
+    const y = U.flip ? -P[i * 3 + 1] : P[i * 3 + 1], z = U.flip ? -P[i * 3 + 2] : P[i * 3 + 2], f = U.floor.get(cellKey(P[i * 3], z));
+    if (f != null && y > f + 1.6 && y < f + 3.2) { sx.push(P[i * 3]); sz.push(z); }
+  }
+  const al = { flip: U.flip, yaw: 0, x: 0, z: 0, y: -gy0 + 0.05, s: 1 };
+  const [x0, x1, z0, z1] = H.info.bbox, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  if (sx.length < 200) { SCAN.conf = 0; return al; }
+  // mřížka stěn 0,5 m: počet bodů → 0..1 (90. percentil = 1)
+  const C = 0.5, ax = quantile(sx, 0.01) - 4, bx = quantile(sx, 0.99) + 4, az = quantile(sz, 0.01) - 4, bz = quantile(sz, 0.99) + 4;
+  const W = Math.ceil((bx - ax) / C), D = Math.ceil((bz - az) / C), cnt = new Float32Array(W * D);
+  for (let i = 0; i < sx.length; i++) { const u = Math.floor((sx[i] - ax) / C), v = Math.floor((sz[i] - az) / C); if (u >= 0 && v >= 0 && u < W && v < D) cnt[u + v * W]++; }
+  const nz = Array.from(cnt).filter(v => v > 0), c90 = nz.length ? quantile(nz, 0.9) : 1, occ = new Float32Array(W * D), blur = new Float32Array(W * D);
+  for (let i = 0; i < occ.length; i++) occ[i] = Math.min(1, cnt[i] / c90);
+  for (let v = 0; v < D; v++) for (let u = 0; u < W; u++) { let m = 0; for (let dv = -1; dv <= 1; dv++) for (let du = -1; du <= 1; du++) { const uu = u + du, vv = v + dv; if (uu >= 0 && vv >= 0 && uu < W && vv < D) m = Math.max(m, occ[uu + vv * W]); } blur[u + v * W] = m; }
+  // šablona ve světě, relativně ke středu domu: obrys domu (váha 2), obrysy sousedů do 45 m (1), vnitřek domu (−1: uvnitř stěny být nemají)
+  const tpl = [], ring = (rr, step, w) => { for (const r of rr) for (let i = 1; i < r.length; i++) { const [a0, b0] = r[i - 1], [a1, b1] = r[i], L = Math.hypot(a1 - a0, b1 - b0); for (let t = 0; t < L; t += step) tpl.push(a0 + (a1 - a0) * t / L - cx, b0 + (b1 - b0) * t / L - cz, w); } };
+  ring(H.spec.poly, 0.4, 2);
+  for (const b of (houseCtx && houseCtx.neighbors) || []) { const r0 = b.rings[0]; let mx = 0, mz = 0; for (const [x, z] of r0) { mx += x; mz += z; } mx /= r0.length; mz /= r0.length; if (Math.hypot(mx - cx, mz - cz) < 45) ring(b.rings, 0.6, 1); }
+  for (let x = x0 + 0.8; x < x1 - 0.8; x += 1) for (let z = z0 + 0.8; z < z1 - 0.8; z += 1) if (inPoly(x, z, H.spec.poly) && edgeDist(x, z, H.spec.poly) > 0.8) tpl.push(x - cx, z - cz, -1);
+  const T = tpl.length / 3, wsum = tpl.reduce((a, w, i) => i % 3 === 2 && w > 0 ? a + w : a, 0) || 1;
+  const sub = []; for (let i = 0; i < T; i++) if (i % Math.max(1, Math.round(T / 150)) === 0) sub.push(i);
+  const score = (t, ux, uz, grid, idx) => {   // dům ve skenu ve středu (ux, uz), otočený o t
+    const c = Math.cos(-t), sn = Math.sin(-t); let sc = 0, ws = 0;
+    for (const i of idx) { const px = tpl[i * 3], pz = tpl[i * 3 + 1], w = tpl[i * 3 + 2], qx = px * c + pz * sn + ux, qz = -px * sn + pz * c + uz, u = Math.floor((qx - ax) / C), v = Math.floor((qz - az) / C);
+      if (w > 0) ws += w; if (u >= 0 && v >= 0 && u < W && v < D) sc += w * grid[u + v * W]; }
+    return sc / (ws || wsum);
+  };
+  // hrubě: 4°, 1 m, rozmazaná mřížka a podvzorek šablony; jemně: 0,5°, 0,25 m kolem 5 nejlepších
+  const all = [...Array(T).keys()], cand = [];
+  for (let a = 0; a < 360; a += 4) { const t = a * Math.PI / 180; for (let uz = az + 4; uz < bz - 4; uz += 1) for (let ux = ax + 4; ux < bx - 4; ux += 1) { const v = score(t, ux, uz, blur, sub); if (cand.length < 5 || v > cand[4].v) { cand.push({ t, ux, uz, v }); cand.sort((p, q) => q.v - p.v); if (cand.length > 5) cand.pop(); } } }
+  let best = null;
+  for (const c0 of cand) {
+    let b = { ...c0, v: score(c0.t, c0.ux, c0.uz, occ, all) };
+    for (const [dt, dd] of [[2 * Math.PI / 180, 0.5], [0.5 * Math.PI / 180, 0.25]]) {
+      const b0 = b;
+      for (let k = -4; k <= 4; k++) for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) { const t = b0.t + k * dt, v = score(t, b0.ux + i * dd, b0.uz + j * dd, occ, all); if (v > b.v) b = { t, ux: b0.ux + i * dd, uz: b0.uz + j * dd, v }; }
+    }
+    if (!best || b.v > best.v) best = b;
+  }
+  // jistota: nejlepší proti nejlepší jiné poloze (dál než 3 m nebo 25°)
+  const other = cand.filter(c => Math.hypot(c.ux - best.ux, c.uz - best.uz) > 3 || Math.abs(Math.atan2(Math.sin(c.t - best.t), Math.cos(c.t - best.t))) > 0.44).map(c => score(c.t, c.ux, c.uz, occ, all));
+  SCAN.conf = best.v > 0 ? 1 - (other.length ? Math.max(...other) : 0) / best.v : 0; SCAN.fit = best.v;
+  // svět = R(yaw)·sken + t; střed domu ve skenu (ux, uz) → (cx, cz)
+  al.yaw = best.t; const [rx, rz] = rotY(best.t, best.ux, best.uz); al.x = cx - rx; al.z = cz - rz;
+  // výška: zem v pásu 1–10 m kolem domu ve skenu (dům stojí na terase y = 0)
+  const R0 = Math.hypot(x1 - x0, z1 - z0) / 2 + 1, near = [];
+  for (const [k, f] of U.floor) { const i = Math.floor(k / 100003 + 0.5), j = k - i * 100003, d = Math.hypot(i * 2 + 1 - best.ux, j * 2 + 1 - best.uz); if (d > R0 && d < R0 + 9) near.push(f); }
+  if (near.length >= 3) { near.sort((p, q) => p - q); al.y = -near[near.length >> 1] + 0.05; }
+  return al;
+}
+const scanSure = () => SCAN.conf > 0.25 && (SCAN.fit || 0) > 0.3;
+function scanApply(context) {
+  const m = SCAN.mesh, a = SCAN.al; if (!m || !a) return;
+  m.position.set(a.x, a.y, a.z); m.scale.setScalar(a.s);
+  m.quaternion.setFromAxisAngle(_up, a.yaw).multiply(new THREE.Quaternion().setFromAxisAngle(_xAx, a.flip ? Math.PI : 0));
+  m.updateMatrixWorld(true);
+  scanCut(); scanCoverage();
+  if (context && houseCtx) houseContext(houseCtx);   // sousedy, stromy a ploty v dosahu skenu schovat (dražší, jen po dokončení úpravy)
+  scanSync();
+}
+// skutečný dům ze skenu: krabice přes půdorys + 0,6 m, od −0,3 m po hřeben + 1 m
+function scanCut() {
+  const sp = SCAN.mod; if (!sp || !H.info) return;
+  if (!SCAN.edit) {
+    SCAN.box = new sp.SplatEditSdf({ type: sp.SplatEditSdfType.BOX, opacity: 0 });
+    SCAN.edit = new sp.SplatEdit({ rgbaBlendMode: sp.SplatEditRgbaBlendMode.MULTIPLY, softEdge: 0.15, sdfs: [SCAN.box] });
+    SCAN.edit.add(SCAN.box); scene.add(SCAN.edit);
+  }
+  const [x0, x1, z0, z1] = H.info.bbox, top = (H.info.roofMax || 8) + 1, m = 0.6;
+  SCAN.box.position.set((x0 + x1) / 2, (top - 0.3) / 2, (z0 + z1) / 2); SCAN.box.scale.set((x1 - x0) / 2 + m, (top + 0.3) / 2, (z1 - z0) / 2 + m);
+  SCAN.edit.updateMatrixWorld(true);
+}
+// pokrytí skenem po 2 m ve světě (aspoň 6 bodů v buňce), pro schování vymyšleného okolí
+function scanCoverage() {
+  const m = SCAN.mesh, P = SCAN.pts, v = V3(), cells = new Map();
+  for (let i = 0; i < P.length; i += 3) { v.set(P[i], P[i + 1], P[i + 2]).applyMatrix4(m.matrixWorld); const k = Math.floor(v.x / 2) * 100003 + Math.floor(v.z / 2); cells.set(k, (cells.get(k) || 0) + 1); }
+  const thr = Math.max(6, (P.length / 3) * 2e-5);
+  SCAN.cover = new Set([...cells].filter(([, n]) => n >= thr).map(([k]) => k));
+}
+function scanCovers(x, z) {
+  if (!SCAN.cover || !SCAN.mesh) return false;
+  const i = Math.floor(x / 2), j = Math.floor(z / 2);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (SCAN.cover.has((i + a) * 100003 + (j + b))) return true;
+  return false;
+}
+// uložení skenu k domu v prohlížeči (IndexedDB), ať se nemusí přetahovat znovu; bez úložiště to jede taky
+const scanKey = () => houseCtx && houseCtx.targetLL ? houseCtx.targetLL.map(v => v.toFixed(5)).join(',') : (H.spec && H.spec.name) || 'dům';
+function scanDB() { return new Promise((ok, no) => { try { const r = indexedDB.open('kaskada', 1); r.onupgradeneeded = () => r.result.createObjectStore('scan'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); }
+async function scanStore(rec) { try { const db = await scanDB(); await new Promise((ok, no) => { const t = db.transaction('scan', 'readwrite'); rec ? t.objectStore('scan').put(rec, scanKey()) : t.objectStore('scan').delete(scanKey()); t.oncomplete = ok; t.onerror = () => no(t.error); }); } catch (e) { console.warn('sken se neuložil', e); } }
+async function scanFetch() { try { const db = await scanDB(); return await new Promise((ok, no) => { const r = db.transaction('scan').objectStore('scan').get(scanKey()); r.onsuccess = () => ok(r.result || null); r.onerror = () => no(r.error); }); } catch (e) { return null; } }
+async function scanRestore() {
+  const rec = await scanFetch(); if (!rec || S.kind !== 'house') return;
+  try { SCAN.bytes = rec.bytes; await scanLoad(rec.bytes.slice(0), rec.name, rec.al); scanNote(`Sken „${rec.name}“ načtený z prohlížeče.`); } catch (e) { console.warn(e); }
+}
+function scanSaveAl() { if (SCAN.bytes && SCAN.al) scanStore({ bytes: SCAN.bytes, name: SCAN.name, al: SCAN.al }); }
+// editor
+function scanNote(t) { $('edScanNote').textContent = t; }
+function scanSync() {
+  const on = !!SCAN.mesh, a = SCAN.al; $('edScanCtl').hidden = !on;
+  $('edScanDrop').textContent = on ? `${SCAN.name} · ${fmt(SCAN.n)} bodů · přetáhni jiný` : 'Přetáhni sem sken okolí (.spz nebo .ply), nebo klikni';
+  if (!on) return;
+  const deg = ((a.yaw * 180 / Math.PI + 540) % 360) - 180;
+  $('edScanR').value = deg; $('edScanRV').textContent = Math.round(deg) + '°';
+  $('edScanX').value = a.x; $('edScanXV').textContent = fmt1(a.x) + ' m'; $('edScanZ').value = a.z; $('edScanZV').textContent = fmt1(a.z) + ' m';
+  $('edScanY').value = a.y; $('edScanYV').textContent = fmt1(a.y) + ' m'; $('edScanS').value = a.s; $('edScanSV').textContent = a.s.toFixed(2).replace('.', ',') + '×';
+  $('edScanTop').setAttribute('aria-pressed', String(SCAN.top));
+}
+async function scanFile(f) {
+  if (!f) return;
+  if (!/\.(spz|ply|splat|ksplat)$/i.test(f.name)) { scanNote('Tohle není sken. Hra bere soubory .spz, .ply, .splat a .ksplat (Scaniverse: Exportovat model → SPZ).'); return; }
+  if (SCAN.busy) return; SCAN.busy = true; scanNote(`Načítám ${f.name} (${fmt1(f.size / 1048576)} MB)…`);
+  try {
+    const bytes = await f.arrayBuffer(); SCAN.bytes = bytes;
+    await scanLoad(bytes.slice(0), f.name);
+    scanNote(scanSure() ? 'Sken sedí k domu a sousedům z mapy. Když ne úplně, dolaď posuvníky (Pohled shora pomůže).' : 'Sken jsem k domu zarovnal jen odhadem. Zapni Pohled shora a dolaď otočení a posun, ať dům ze skenu zmizí pod tím na bourání.');
+    scanSaveAl();
+  } catch (e) { console.warn(e); scanNote(e.user ? e.message : 'Sken se nepodařilo načíst. Na náhledu claude.ai to může blokovat prohlížeč, zkus plnou verzi hry.'); }
+  SCAN.busy = false;
+}
+function setupScan() {
+  const drop = $('edScanDrop'), inp = $('edScanFile');
+  drop.addEventListener('click', () => inp.click());
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } });
+  inp.addEventListener('change', () => { scanFile(inp.files[0]); inp.value = ''; });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); scanFile(e.dataTransfer.files[0]); });
+  const live = (id, set, out) => {   // posuvník: hned posune sken, okolí a uložení až po puštění
+    $(id).addEventListener('input', e => { if (!SCAN.al) return; set(+e.target.value); scanApply(false); });
+    $(id).addEventListener('change', () => { if (!SCAN.al) return; scanApply(true); scanSaveAl(); });
+  };
+  live('edScanR', v => { SCAN.al.yaw = v * Math.PI / 180; });
+  live('edScanX', v => { SCAN.al.x = v; }); live('edScanZ', v => { SCAN.al.z = v; });
+  live('edScanY', v => { SCAN.al.y = v; }); live('edScanS', v => { SCAN.al.s = v; });
+  $('edScanAuto').addEventListener('click', () => { if (!SCAN.mesh) return; SCAN.al = scanAuto(SCAN.al.flip); scanApply(true); scanSaveAl(); scanNote(scanSure() ? 'Zarovnáno k domu a sousedům z mapy.' : 'Zarovnání je nejisté, dolaď ho posuvníky.'); });
+  $('edScanFlip').addEventListener('click', () => { if (!SCAN.mesh) return; SCAN.al = scanAuto(SCAN.al.flip ? 0 : 1); scanApply(true); scanSaveAl(); });
+  $('edScanTop').addEventListener('click', () => { SCAN.top = !SCAN.top; scanSync(); });
+  $('edScanOff').addEventListener('click', () => { scanClear(); SCAN.bytes = null; scanStore(null); if (houseCtx) houseContext(houseCtx); scanSync(); scanNote('Sken odebrán, okolí je zase z mapy.'); });
 }
 function demoContext() {
   const sq = (cx, cz, w, d) => [[[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2], [cx - w / 2, cz - d / 2]]];
@@ -5603,6 +5811,7 @@ function terrRescue(b, p) {
 function houseUpdate(rdt, dt) {
   if (H.state === 'off') return;
   TREE.time.value += rdt;
+  if (SCAN.mesh) SCAN.mesh.recolor.setScalar(clamp(1 / (renderer.toneMappingExposure || 1), 0.25, 4));
   if (H.state === 'play') {
     H.gt += dt;
     if (H.comboT > 0) { H.comboT -= rdt; if (H.comboT <= 0) { H.comboN = 0; H.mult = 1; renderHScore(); } }
@@ -5669,6 +5878,9 @@ function houseUpdate(rdt, dt) {
 }
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 function houseCamera(rdt) {
+  if (H.state === 'edit' && SCAN.top && SCAN.mesh) {   // shora, ať jde sken srovnat s půdorysem domu
+    const c = H.center; camera.position.set(c.x, 70, c.z + 6); camera.lookAt(c.x, 0, c.z); return;
+  }
   if (H.state === 'edit' || H.state === 'end') {
     H.orbitT = (H.orbitT || 0) + rdt;
     const a = H.orbit + Math.sin(H.orbitT * 0.18) * 0.55, R = H.radius * 2.0 + 5, c = H.center;
@@ -5827,6 +6039,7 @@ function houseEnter() {
 }
 function houseLeave() {
   if (S.kind !== 'house') return;
+  scanClear(); if (SCAN.spark) SCAN.spark.visible = false;
   H.state = 'off'; houseClear(); terrainOff(); houseRoot.visible = false; ambU.uAmbK.value = 0; setSun(SUN0); H.meterT = 0; slingIsland.visible = true;
   camera.fov = 45; camera.near = 0.1; camera.clearViewOffset(); camera.updateProjectionMatrix(); dustScale();
   key.shadow.mapSize.set(2048, 2048); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; }
@@ -5842,10 +6055,12 @@ function houseOpen(spec, ctx) {
   houseEnter();
   for (const f of Object.values((H.spec && H.spec.facades) || {})) if (f.tex) f.tex.dispose();
   H.spec = { ...spec }; houseCtx = ctx;
+  scanClear(); SCAN.bytes = null; SCAN.top = false;
   try { houseBuild(H.spec); }
   catch (e) { console.warn(e); houseLeave(); throw e; }
   houseContext(ctx);
   houseEdit();
+  scanRestore();
 }
 function houseEdit() {
   H.state = 'edit'; S.state = 'house';
@@ -6088,6 +6303,7 @@ function setupEditor() {
     $(id).addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; H.spec[key] = num ? +b.dataset.v : b.dataset.v; editChanged(); });
   $('edRoofOrtho').addEventListener('click', () => { H.spec.roofOrtho = true; editChanged(); });
   setupFacades();
+  setupScan();
   $('edSun').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; H.spec.sunPhoto = b.dataset.v === '1'; editChanged(); });
   $('edPitch').addEventListener('input', e => { H.spec.pitch = +e.target.value; $('edPitchV').textContent = H.spec.pitch + '°'; editChanged(); });
   $('edGo').addEventListener('click', () => { Snd.init(); housePlay(false); });
@@ -6111,12 +6327,13 @@ function syncEditor() {
   $('edSunRow').hidden = !(houseCtx && houseCtx.sun); for (const b of $('edSun').children) b.setAttribute('aria-pressed', String(b.dataset.v === (s.sunPhoto ? '1' : '0')));
   if (s.roofOrtho) for (const b of $('edRoofCol').children) b.setAttribute('aria-pressed', 'false'); $('edRidgeRow').hidden = s.roof !== 'gable';
   $('edErr').hidden = true;
+  scanSync();
 }
 function editChanged() {
   syncEditor();
   clearTimeout(editTimer);
   editTimer = setTimeout(() => {
-    try { houseBuild(H.spec); $('edInfo').textContent = `Postaveno za ${H.buildMs} ms`; }
+    try { houseBuild(H.spec); if (SCAN.mesh) scanCut(); $('edInfo').textContent = `Postaveno za ${H.buildMs} ms`; }
     catch (e) { console.warn(e); $('edErr').textContent = e.user ? e.message : 'Tahle kombinace nejde postavit.'; $('edErr').hidden = false; }
   }, 110);
 }
@@ -6411,6 +6628,12 @@ window.kaskada = {
       scene.traverseVisible(o => { if (!o.isMesh) return; const g = gname(o); grp[g] ||= [0, 0]; grp[g][0]++; grp[g][1] += tri(o); }); out.groups = grp;
       big.sort((a, b) => b[1] - a[1]); out.sceneTris = all; out.viewTris = inView; out.castTris = cast; out.castNoCull = castCulled; out.top = big.slice(0, 12); return out;
     },
+    async scanUrl(url, name, al) { const bin = await (await fetch(url)).arrayBuffer(); SCAN.bytes = bin; await scanLoad(bin.slice(0), name, al); return window.kaskada.house.scanInfo(); },
+    scanAuto() { SCAN.al = scanAuto(); scanApply(true); return window.kaskada.house.scanInfo(); },
+    scanInfo: () => SCAN.mesh ? { n: SCAN.n, pts: SCAN.pts.length / 3, al: SCAN.al, conf: +SCAN.conf.toFixed(3), fit: +(SCAN.fit || 0).toFixed(3), up: SCAN.upScore, cover: SCAN.cover ? SCAN.cover.size : 0 } : null,
+    scanTop(on) { SCAN.top = on; },
+    scanBox() { const P = SCAN.pts, q = (k, f) => quantile(P.filter((v, i) => i % 3 === k), f); return [0, 1, 2].map(k => [q(k, 0.05), q(k, 0.5), q(k, 0.95)].map(v => +v.toFixed(2))); },
+    scanSet(al) { Object.assign(SCAN.al, al); scanApply(false); return SCAN.al; },
     score: () => ({ score: H.score, mult: H.mult, comboN: H.comboN, chain: H.chain, bizarre: H.bizarre, stat: H.stat, rank: hRank() }),
     gas: () => PROP.list.filter(p => p.gas).map(p => ({ p: p.bb.getCenter(V3()).toArray().map(v => +v.toFixed(2)), v: p.body ? +Math.hypot(...Object.values(phys.vel(p.body)).slice(0, 3)).toFixed(2) : 0, w: p.body ? +Math.hypot(...['x', 'y', 'z'].map(k => phys.angVel(p.body)[k])).toFixed(2) : 0, m: p.body ? +phys.mass(p.body).toFixed(1) : 0, ready: p.ready, body: !!p.body, leak: p.leak, fuse: +(p.fuse || 0).toFixed(2), hp: p.hp, broken: p.broken, rocket: !!p.rocket })),
     gasPut(i, x, y, z) { const g = PROP.list.filter(p => p.gas)[i]; if (!g || !g.body) return false; phys.setPos(g.body, { x, y, z }); phys.setVel(g.body, { x: 0, y: 0, z: 0 }); phys.setAngVel(g.body, { x: 0, y: 0, z: 0 }); return true; },
